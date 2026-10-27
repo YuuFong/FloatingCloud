@@ -1,0 +1,20 @@
+{
+  "$schema": "https://raw.githubusercontent.com/BetterNCM/BetterNCM-Plugins/master/manifest-schema.json",
+  "manifest_version": 1,
+  "name": "FloatingCloud",
+  "slug": "floatingcloud-lite",
+  "version": "0.4.0-alpha",
+  "author": "FloatingCloud",
+  "description": "实验性透明桌面歌词：WebView2 独立窗口、原生进度同步与逐词动画。不接管网易云原生桌面歌词。",
+  "type": "extension",
+  "ncm3-compatible": true,
+  "ncm-version-req": ">=3.1.42 <3.1.43",
+  "require_restart": true,
+  "native_plugin": "native.dll",
+  "injects": {
+    "Main": [
+      { "file": "core.js" },
+      { "file": "main.js" }
+    ]
+  }
+}

@@ -1,0 +1,18 @@
+param([string]$Version = '1.0.3800.47')
+$ErrorActionPreference='Stop'
+$root = Split-Path -Parent $PSScriptRoot
+$vendor=Join-Path $root 'vendor'
+$null=New-Item -ItemType Directory -Force $vendor
+if (-not (Get-Command nuget.exe -ErrorAction SilentlyContinue)) {
+  throw '找不到 nuget.exe。使用 VS 开发者 PowerShell 或在 PATH 中安装 NuGet CLI。'
+}
+nuget.exe install Microsoft.Web.WebView2 -Version $Version -OutputDirectory $vendor -NonInteractive
+if($LASTEXITCODE -ne 0){throw 'NuGet 安装失败'}
+$sdk=Join-Path $vendor "Microsoft.Web.WebView2.$Version"
+cmake -S "$root/native" -B "$root/build/native" -A x64 "-DWEBVIEW2_SDK_ROOT=$sdk"
+if($LASTEXITCODE -ne 0){throw 'CMake 配置失败'}
+cmake --build "$root/build/native" --config Release
+if($LASTEXITCODE -ne 0){throw 'CMake 构建失败'}
+Copy-Item "$root/build/native/Release/native.dll" "$root/plugin/native.dll" -Force
+python "$root/tools/pack_plugin.py"
+Write-Host 'Completed: FloatingCloud-v0.4.0.plugin'

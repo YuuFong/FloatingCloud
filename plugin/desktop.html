@@ -1,0 +1,417 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
+#root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;position:relative}
+#drag{height:20px;position:absolute;left:10px;right:10px;top:0;cursor:move}
+#drag:before{content:"";position:absolute;left:calc(50% - 26px);width:52px;top:8px;height:3px;border-radius:8px;background:rgba(255,255,255,.18)}
+#toolbar{position:absolute;left:50%;top:17px;transform:translate(-50%,-10px);display:flex;gap:6px;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:6px 8px;background:rgba(15,21,33,.87);box-shadow:0 8px 25px #0005;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:100}
+#root:hover #toolbar,#toolbar:focus-within{opacity:1;pointer-events:auto;transform:translate(-50%,8px)}
+#toolbar button{color:white;font:14px sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 10px;border-radius:8px}
+#toolbar button:hover,#toolbar button:focus-visible{background:#566986}
+#stage{width:100%;flex:none;min-height:0;overflow:hidden;position:relative;background:transparent!important;border:0;margin:0 auto}
+#stage .fc-track{top:23px}
+#stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
+#state{position:absolute;bottom:2px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none}
+#root:hover #state{opacity:.8}
+</style></head><body>
+<div id="root"><div id="drag" title="按住此处拖动歌词"></div><div id="toolbar"><button data-action="previous" title="上一曲">⏮</button><button data-action="toggle" title="播放/暂停">⏯</button><button data-action="next" title="下一曲">⏭</button><button data-action="lock" title="锁定（设置页解锁）">🔒</button><button data-action="close" title="关闭歌词浮窗">✕</button></div><div id="stage" class="fc-stage"></div><div id="state"></div></div>
+<script>
+/* FloatingCloud Lite — lyric parsing, playback-clock and render timing primitives.
+ * Original implementation. Behaviors informed by ANYNC TaskbarLyrics v1.7.4 (MIT).
+ * No source fonts or third-party renderer code included.
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.FloatingCloudCore = api;
+})(typeof window !== 'undefined' ? window : null, function () {
+  'use strict';
+  const FONT_OPTIONS = Object.freeze([
+    { value: 'Microsoft YaHei, sans-serif', label: '微软雅黑' },
+    { value: '"Source Han Sans SC", "Source Han Sans CN", "思源黑体 CN", "Noto Sans CJK SC", "思源黑体", "Microsoft YaHei", sans-serif', label: '思源黑体（需本机安装）' },
+    { value: '"Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif', label: 'Noto Sans CJK SC' },
+    { value: '"Segoe UI", "Microsoft YaHei", sans-serif', label: 'Segoe UI' },
+    { value: '"SimSun", serif', label: '宋体' }
+  ]);
+  const WEIGHT_OPTIONS = Object.freeze([
+    { value: 300, label: '细体 · Light (300)' },
+    { value: 400, label: '常规 · Regular (400)' },
+    { value: 500, label: '中等 · Medium (500)' },
+    { value: 600, label: '半粗 · SemiBold (600)' },
+    { value: 700, label: '粗体 · Bold (700)' }
+  ]);
+  const DEFAULTS = Object.freeze({
+    enabled: true,
+    font: 'Microsoft YaHei, sans-serif',
+    fontWeight: 600, fontSize: 30,
+    nextFontSize: 23, color: '#d4d9e5', nextColor: '#a8b2c8',
+    highlight: '#ffffff', strokeWidth: 1.4, strokeColor: '#222936',
+    shadow: 3, lineGap: 12, align: 'center', width: 740,
+    offsetMs: 0, animationSpeed: 1, showTranslation: true,
+    enableWordScan: true
+  });
+  const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
+  const number = (v, def) => (v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : def;
+  const color = (x, fallback) => /^#[0-9a-f]{6}$/i.test(String(x)) ? String(x) : fallback;
+  function normalizeSettings(input) {
+    const v = Object.assign({}, DEFAULTS, input && typeof input === 'object' ? input : {});
+    const validFonts = FONT_OPTIONS.map(f => f.value);
+    const font = validFonts.includes(v.font) ? v.font : DEFAULTS.font;
+    const weights = WEIGHT_OPTIONS.map(w => w.value);
+    const fontWeight = weights.includes(number(v.fontWeight, DEFAULTS.fontWeight)) ? Number(v.fontWeight) : DEFAULTS.fontWeight;
+    return {
+      enabled: Boolean(v.enabled), font, fontWeight,
+      fontSize: clamp(number(v.fontSize, 30), 14, 64),
+      nextFontSize: clamp(number(v.nextFontSize, 23), 12, 56),
+      color: color(v.color, DEFAULTS.color),
+      nextColor: color(v.nextColor, DEFAULTS.nextColor),
+      highlight: color(v.highlight, DEFAULTS.highlight),
+      strokeWidth: clamp(number(v.strokeWidth, 1.4), 0, 5),
+      strokeColor: color(v.strokeColor, DEFAULTS.strokeColor),
+      shadow: clamp(number(v.shadow, 3), 0, 16),
+      lineGap: clamp(number(v.lineGap, 12), 0, 40),
+      align: ['left', 'center', 'right'].includes(v.align) ? v.align : 'center',
+      width: clamp(number(v.width, 740), 300, 1200),
+      offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
+      animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
+      showTranslation: Boolean(v.showTranslation),
+      enableWordScan: Boolean(v.enableWordScan)
+    };
+  }
+  const timestampPattern = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+  function parseLrc(input) {
+    if (typeof input !== 'string') return [];
+    const lines = [];
+    for (const raw of input.replace(/\r/g, '').split('\n')) {
+      timestampPattern.lastIndex = 0;
+      const stamps = [...raw.matchAll(timestampPattern)];
+      if (!stamps.length) continue;
+      const text = raw.replace(timestampPattern, '').trim();
+      if (!text) continue;
+      for (const match of stamps) {
+        const fraction = (match[3] || '0').padEnd(3, '0').slice(0, 3);
+        const time = Number(match[1]) * 60000 + Number(match[2]) * 1000 + Number(fraction);
+        lines.push({ time, text, words: [], kind: 'lrc' });
+      }
+    }
+    return lines.sort((a, b) => a.time - b.time);
+  }
+  // YRC line format: [absolute start, duration](relative word start, word duration, 0)word...
+  function parseYrc(input) {
+    if (typeof input !== 'string') return [];
+    const lines = [];
+    const tokenPattern = /\((\d+),(\d+),(\d+)\)([^()]*?)(?=\(\d+,\d+,\d+\)|$)/g;
+    for (const raw of input.replace(/\r/g, '').split('\n')) {
+      const trimmed = raw.trim();
+      const match = /^\[(\d+),(\d+)\]/.exec(trimmed);
+      if (!match) continue;
+      const time = Number(match[1]);
+      const duration = Number(match[2]);
+      if (!Number.isSafeInteger(time) || !Number.isSafeInteger(duration)) continue;
+      const body = trimmed.slice(match[0].length);
+      const words = [];
+      for (const token of body.matchAll(tokenPattern)) {
+        const text = token[4];
+        if (!text) continue;
+        words.push({ text, start: time + Number(token[1]), duration: Number(token[2]) });
+      }
+      if (!words.length) continue;
+      const text = words.map(w => w.text).join('').trim();
+      if (text) lines.push({ time, duration, text, words, kind: 'yrc' });
+    }
+    return lines.sort((a, b) => a.time - b.time);
+  }
+  function attachTranslations(lines, translatedLrc) {
+    const translations = parseLrc(translatedLrc);
+    if (!translations.length) return lines;
+    return lines.map(line => {
+      let nearest = null;
+      let distance = Infinity;
+      // Most lyrics have matching starts, allow 400ms clock skew.
+      for (const tr of translations) {
+        const delta = Math.abs(tr.time - line.time);
+        if (delta < distance) { nearest = tr; distance = delta; }
+      }
+      return { ...line, translation: nearest && distance <= 400 ? nearest.text : '' };
+    });
+  }
+  function parseNcmLyrics(data) {
+    const yrc = parseYrc(data?.yrc?.lyric || '');
+    const kind = yrc.length ? 'yrc' : 'lrc';
+    const originals = yrc.length ? yrc : parseLrc(data?.lrc?.lyric || '');
+    // YRC translations have their own timestamps; prefer them only for YRC.
+    const primaryTranslation = kind === 'yrc' ? (data?.ytlrc?.lyric || '') : (data?.tlyric?.lyric || '');
+    const fallbackTranslation = kind === 'yrc' ? (data?.tlyric?.lyric || '') : (data?.ytlrc?.lyric || '');
+    let lines = attachTranslations(originals, primaryTranslation);
+    if (!lines.some(line => line.translation) && fallbackTranslation) lines = attachTranslations(originals, fallbackTranslation);
+    return { lines, kind };
+  }
+  function resolveIndex(lines, timeMs) {
+    if (!lines.length) return -1;
+    let left = 0, right = lines.length - 1, best = -1;
+    while (left <= right) {
+      const mid = (left + right) >> 1;
+      if (lines[mid].time <= timeMs) { best = mid; left = mid + 1; }
+      else right = mid - 1;
+    }
+    return best;
+  }
+  function lineProgress(lines, index, timeMs) {
+    if (index < 0 || index >= lines.length) return 0;
+    const line = lines[index];
+    const next = lines[index + 1];
+    const until = (line.duration > 0) ? (line.time + line.duration) : (next?.time ?? line.time + 4500);
+    const end = next ? Math.min(until, next.time) : until;
+    return clamp((timeMs - line.time) / Math.max(1, end - line.time), 0, 1);
+  }
+  function wordProgress(word, timeMs) {
+    if (!word || !Number.isFinite(word.start)) return 0;
+    if (timeMs < word.start) return 0;
+    if (!word.duration || word.duration < 1) return 1;
+    return clamp((timeMs - word.start) / word.duration, 0, 1);
+  }
+  // For summary indicators only; rendering uses each YRC token's own progress.
+  function lyricProgress(lines, index, timeMs) {
+    if (index < 0 || index >= lines.length) return 0;
+    const words = lines[index].words || [];
+    if (!words.length) return lineProgress(lines, index, timeMs);
+    const weight = w => Math.max(Array.from(w.text).length, 1);
+    const total = words.reduce((sum, w) => sum + weight(w), 0);
+    return clamp(words.reduce((sum, w) => sum + weight(w) * wordProgress(w, timeMs), 0) / Math.max(total, 1), 0, 1);
+  }
+  function createClock(now = () => performance.now()) {
+    let basePosition = 0, baseStamp = now(), playing = false;
+    return {
+      anchor(positionMs, isPlaying = playing) {
+        const incoming = Math.max(0, number(positionMs, 0));
+        const latest = this.position();
+        // Small jitter should not make scan step backwards, large seek must win.
+        basePosition = isPlaying && playing && Math.abs(incoming - latest) < 180
+          ? Math.max(incoming, latest) : incoming;
+        baseStamp = now(); playing = Boolean(isPlaying);
+      },
+      setPlaying(value) {
+        basePosition = this.position(); baseStamp = now(); playing = Boolean(value);
+      },
+      isPlaying() { return playing; },
+      position() { return Math.max(0, basePosition + (playing ? now() - baseStamp : 0)); },
+      reset() { basePosition = 0; baseStamp = now(); playing = false; }
+    };
+  }
+  return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, parseLrc, parseYrc,
+    attachTranslations, parseNcmLyrics, resolveIndex, lineProgress, wordProgress, lyricProgress, createClock };
+});
+
+</script><script>
+(() => {'use strict';
+const Core = window.FloatingCloudCore;
+  const styleText = `
+  .fc-panel{font-family:system-ui,'Microsoft YaHei',sans-serif;color:var(--mdc-theme-on-surface,#e4e7ef);padding:12px 8px 24px;max-width:930px}
+  .fc-panel *{box-sizing:border-box}
+  .fc-intro{opacity:.78;line-height:1.65;margin:7px 0 18px;font-size:13px}
+  .fc-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
+  .fc-btn{cursor:pointer;background:#34465f;border:1px solid #59718e;border-radius:8px;color:#fff;padding:7px 12px;font:inherit;font-size:13px}
+  .fc-btn:focus-visible,.fc-control input:focus-visible,.fc-control select:focus-visible{outline:2px solid #81abef}
+  .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
+  .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
+  .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
+  .fc-track{position:absolute;top:16px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-line{height:var(--fc-pitch);display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.22;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color)}
+  .fc-line-primary{font-size:var(--fc-font-size);font-weight:var(--fc-weight);color:var(--fc-color)}
+  .fc-line-secondary{font-size:var(--fc-next-size);font-weight:var(--fc-weight);color:var(--fc-next)}
+  .fc-line-paired .fc-text-box{font-size:var(--fc-font-size)}
+  .fc-line-secondary.fc-line-paired .fc-text-box{font-size:var(--fc-next-size)}
+  .fc-line-paired .fc-subline{font-size:var(--fc-next-size);color:var(--fc-next);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:3px}
+  .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
+  .fc-word-base{white-space:pre}
+  .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
+  .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
+  .fc-stage:not(.fc-no-motion) .fc-text-highlight{transition:clip-path 90ms linear}
+  .fc-stage:not(.fc-no-motion) .fc-word-highlight{transition:clip-path 90ms linear}
+  .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
+  .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
+  .fc-control select{max-width:100%;text-overflow:ellipsis}
+  .fc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:13px 18px}
+  .fc-control{display:flex;flex-direction:column;gap:7px;font-size:13px}
+  .fc-control small{font-size:11px;opacity:.68}
+  .fc-control input[type=range]{width:100%;accent-color:#7fa7ec}
+  .fc-control input[type=color]{width:66px;height:28px;border:0;background:none}
+  .fc-control select{height:32px;background:#293449;color:white;border:1px solid #586578;border-radius:5px;padding:4px}
+  .fc-control input[type=checkbox]{margin-right:8px}
+  .fc-hint{font-size:12px;opacity:.67;line-height:1.6;margin-top:20px}
+  @media(prefers-reduced-motion:reduce){.fc-track{transition:none!important}}
+  `;
+  function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  class RollingView {
+    constructor(stage) {
+      this.stage = stage;
+      this.track = el('div', 'fc-track'); stage.appendChild(this.track);
+      this.rows = [0, 1, 2].map(() => el('div', 'fc-line'));
+      this.rows.forEach(r => this.track.append(r));
+      this.index = null; this.busy = false; this.pending = null;
+      this.timer = null; this.generation = 0; this.lines = [];
+      this.scanRows = [null, null, null]; this.lastPosition = 0;
+    }
+    applySettings(s) {
+      this.settings = s;
+      this.paired = Boolean(s.showTranslation && this.lines.some(l => l.translation));
+      const v = this.stage.style;
+      const pitch = this.paired
+        ? Math.ceil(s.fontSize * 1.3 + s.nextFontSize * 1.35 + s.lineGap + 10)
+        : Math.ceil(Math.max(s.fontSize * 1.3, s.nextFontSize * 1.45) + s.lineGap);
+      this.pitch = pitch;
+      v.setProperty('--fc-pitch', pitch + 'px'); v.setProperty('--fc-font-size', s.fontSize + 'px');
+      v.setProperty('--fc-next-size', s.nextFontSize + 'px');
+      v.setProperty('--fc-weight', String(s.fontWeight));
+      v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
+      v.setProperty('--fc-highlight', s.highlight); v.setProperty('--fc-stroke', s.strokeWidth + 'px');
+      v.setProperty('--fc-stroke-color', s.strokeColor); v.setProperty('--fc-shadow', s.shadow + 'px');
+      v.setProperty('--fc-align', s.align); v.fontFamily = s.font;
+      v.height = (pitch * (this.paired ? 1 : 2) + 16) + 'px';
+      v.maxWidth = s.width + 'px';
+      this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
+      this.cancelTransition();
+      if (this.index !== null) { this.draw(); this.renderScan(0, this.lastPosition, this.scanRows[0]); }
+    }
+    setLines(lines) {
+      if (this.lines === lines) return;
+      this.lines = lines || []; this.cancelTransition(); this.index = null;
+      if (this.settings) this.applySettings(this.settings);
+    }
+    cancelTransition() {
+      this.generation++; clearTimeout(this.timer); this.timer = null;
+      this.busy = false; this.pending = null; this.track.style.transition = 'none';
+      this.track.style.transform = 'translate3d(0,0,0)';
+    }
+    draw() {
+      const i = Math.max(0, this.index ?? 0);
+      this.scanRows = [null, null, null];
+      this.rows.forEach((r, row) => {
+        const line = this.lines[i + row];
+        const primary = row === 0;
+        r.className = 'fc-line ' + (primary ? 'fc-line-primary' : 'fc-line-secondary') +
+          (this.paired ? ' fc-line-paired' : '');
+        r.replaceChildren();
+        const container = el('div', 'fc-text-box');
+        const content = line?.text || (primary ? '暂无歌词' : '');
+        const segments = [];
+        if (line?.words?.length && line.words.map(w => w.text).join('').trim() === content.trim()) {
+          // Actual YRC word timestamps; each token owns an independently clipped overlay.
+          for (const word of line.words) {
+            const wordNode = el('span', 'fc-word');
+            wordNode.append(el('span', 'fc-word-base', word.text));
+            const highlighted = el('span', 'fc-word-highlight', word.text);
+            wordNode.append(highlighted); container.append(wordNode);
+            segments.push({ word, node: wordNode });
+          }
+          this.scanRows[row] = { segments, mode: 'yrc' };
+        } else {
+          container.append(el('span', 'fc-text-base', content));
+          const highlighted = el('span', 'fc-text-highlight', content);
+          container.append(highlighted);
+          this.scanRows[row] = { node: container, mode: 'lrc' };
+        }
+        r.append(container);
+        if (this.paired) r.append(el('div', 'fc-subline', line?.translation || '　'));
+      });
+    }
+    // Like TaskbarLyrics, frequent progress updates do not restart rolling transitions.
+    renderScan(progress, timeMs, scan) {
+      if (!scan) return;
+      if (scan.mode === 'yrc') {
+        for (const { word, node } of scan.segments) {
+          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 1;
+          node.style.setProperty('--fc-word-progress', `${(value * 100).toFixed(3)}%`);
+        }
+      } else {
+        const value = this.settings.enableWordScan ? progress : 1;
+        scan.node.style.setProperty('--fc-progress', `${(Math.max(0,Math.min(1,value)) * 100).toFixed(3)}%`);
+      }
+    }
+    update(index, progress, timeMs) {
+      if (!this.settings?.enabled) { this.stage.style.opacity = '.28'; return; }
+      this.stage.style.opacity = '1'; this.lastPosition = timeMs;
+      // Before first timestamp do not highlight upcoming lyrics.
+      if (index < 0) { index = 0; progress = 0; }
+      if (this.index === null) { this.index = index; this.draw(); }
+      if (this.busy) {
+        this.pending = { index, progress, timeMs };
+        this.renderScan(progress, timeMs, this.scanRows[1]);
+        return;
+      }
+      if (index === this.index) { this.renderScan(progress, timeMs, this.scanRows[0]); return; }
+      if (index !== this.index + 1 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        this.index = index; this.draw(); this.renderScan(progress, timeMs, this.scanRows[0]); return;
+      }
+      this.busy = true;
+      const ticket = ++this.generation;
+      const duration = (this.paired ? 760 : 560) / this.settings.animationSpeed;
+      this.renderScan(progress, timeMs, this.scanRows[1]);
+      this.track.style.transition = `transform ${duration}ms cubic-bezier(0.22,0.72,0.24,1)`;
+      requestAnimationFrame(() => {
+        if (ticket === this.generation) this.track.style.transform = `translate3d(0,-${this.pitch}px,0)`;
+      });
+      this.timer = setTimeout(() => {
+        if (ticket !== this.generation) return;
+        this.index = index;
+        this.track.style.transition = 'none';
+        this.track.style.transform = 'translate3d(0,0,0)';
+        this.draw(); this.busy = false;
+        const queued = this.pending; this.pending = null;
+        const target = queued ?? { index, progress, timeMs };
+        if (target.index === this.index) this.renderScan(target.progress, target.timeMs, this.scanRows[0]);
+        else this.update(target.index, target.progress, target.timeMs);
+      }, duration + 28);
+    }
+    destroy() { this.cancelTransition(); this.stage.replaceChildren(); }
+  }
+
+
+let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
+let ready=false,view=null,lastUpdate=0,playStatus=false;
+const stage=document.getElementById('stage'), state=document.getElementById('state');
+function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>postAction(b.dataset.action)));
+function setMessage(msg){state.textContent=msg||''}
+function receive(message){
+  if (!message || typeof message !== 'object')return;
+  switch(message.type){
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);break;
+    case 'lyrics':{
+      const p=message.payload||{};
+      if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
+      lastTrackKey=String(p.trackKey||'');lines=Array.isArray(p.lines)?p.lines.slice(0,300):[];
+      view.setLines(lines);view.applySettings(settings);
+      setMessage(p.title||'');break;
+    }
+    case 'timeline':{
+      const p=message.payload||{};
+      if(Number.isFinite(p.positionMs))clock.anchor(p.positionMs, Boolean(p.playing));
+      break;
+    }
+    case 'locked':document.getElementById('toolbar').style.display=message.payload?'none':'flex';break;
+  }
+}
+window.chrome?.webview?.addEventListener('message',ev=>receive(ev.data));
+const css=document.createElement("style");css.textContent=styleText;document.head.append(css);
+view=new RollingView(stage);view.applySettings(settings);
+// Browser-only mock: deliberate and explicit. No fake playback in production WebView2.
+if(!window.chrome?.webview){
+ lines=Core.parseNcmLyrics({yrc:{lyric:'[0,3000](0,800,0)窗外(800,700,0)的风(1500,1000,0)吹过\n[3000,3000](0,900,0)平凡(900,900,0)时刻(1800,900,0)发光\n[6000,3000](0,800,0)把日子(800,900,0)写成(1700,950,0)一首歌'}}).lines;
+ view.setLines(lines);view.applySettings(settings);clock.anchor(0,true);setMessage('浏览器演示模式');
+}
+function raf(){
+ const pos=clock.position(),index=Core.resolveIndex(lines,pos),progress=Core.lyricProgress(lines,index,pos);
+ view.update(index,progress,pos);
+ requestAnimationFrame(raf);
+}
+requestAnimationFrame(raf);
+})();
+</script></body></html>

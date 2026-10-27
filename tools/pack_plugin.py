@@ -1,0 +1,14 @@
+from pathlib import Path
+import json,zipfile,sys
+root=Path(__file__).resolve().parents[1]
+plugin=root/'plugin'
+manifest=json.loads((plugin/'manifest.json').read_text(encoding='utf8'))
+if not (plugin/'native.dll').exists():
+    raise SystemExit('Missing native.dll; build native host before producing installable .plugin. No JS-only stub will be shipped as a desktop host.')
+assert manifest['native_plugin']=='native.dll'
+assert (plugin/'desktop.html').is_file()
+name=root/'FloatingCloud-v0.4.0.plugin'
+with zipfile.ZipFile(name,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+    for file in plugin.iterdir():
+        if file.is_file():z.write(file,file.name)
+print(f'packaged: {name} / {name.stat().st_size} bytes')
