@@ -218,6 +218,27 @@
     if (!word.duration || word.duration < 1) return 1;
     return clamp((timeMs - word.start) / word.duration, 0, 1);
   }
+  // TaskbarLyrics-style scan position: map each timed syllable to its real
+  // substring span instead of animating an individual DOM element per word.
+  function wordScanProgress(line, timeMs) {
+    if (!line?.text || !Array.isArray(line.words) || !line.words.length) return null;
+    const text=line.text, length=text.length;
+    let readCursor=0, scanned=0;
+    for (const w of line.words) {
+      if (!w?.text) continue;
+      let offset=text.indexOf(w.text,readCursor);
+      if(offset<0) offset=Math.min(readCursor,length);
+      const width=Math.min(w.text.length,length-offset);
+      if(width<=0) continue;
+      if(timeMs<=w.start) break;
+      const progress=w.duration>0?clamp((timeMs-w.start)/w.duration,0,1):1;
+      scanned=offset+width*progress;
+      if(progress<1) break;
+      readCursor=offset+width;
+    }
+    return clamp(scanned/Math.max(1,length),0,1);
+  }
+
   // For summary indicators only; rendering uses each YRC token's own progress.
   function lyricProgress(lines, index, timeMs) {
     if (index < 0 || index >= lines.length) return 0;
@@ -247,5 +268,5 @@
     };
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, parseLrc, parseYrc,
-    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord, resolveIndex, lineProgress, wordProgress, lyricProgress, createClock };
+    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
 });
