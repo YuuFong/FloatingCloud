@@ -127,6 +127,73 @@
     if (!lines.some(line => line.translation) && fallbackTranslation) lines = attachTranslations(originals, fallbackTranslation);
     return { lines, kind };
   }
+  // LRCLIB Lyricsfile v1 draft: strict subset of line/word mappings.
+  // Never interpret arbitrary YAML tags, anchors or application code.
+  function parseLyricsfile(input) {
+    if (typeof input !== 'string' || input.length > 256000) return [];
+    const out = []; let inLines = false, inWords = false, current = null, word = null;
+    const val = v => {
+      v = v.trim();
+      if (v.startsWith("'") && v.endsWith("'")) return v.slice(1,-1).replace(/''/g,"'");
+      if (v.startsWith('"') && v.endsWith('"')) {
+        try { return JSON.parse(v); } catch (_) { return v.slice(1,-1); }
+      }
+      return v.replace(/\s+#.*$/,'');
+    };
+    for (const raw of input.split(/\r?\n/)) {
+      if (/^lines:\s*(?:#.*)?$/.test(raw)) { inLines = true; continue; }
+      if (!inLines) continue;
+      if (/^\S/.test(raw) && !/^lines:/.test(raw)) break;
+      let m;
+      if ((m = /^  - text:\s*(.*)$/.exec(raw))) {
+        current = { text: val(m[1]), time: NaN, duration: 0, words: [], kind: 'lyricsfile' };
+        out.push(current); inWords = false; word = null;
+      } else if (current && (m = /^    (start_ms|end_ms|text):\s*(.*)$/.exec(raw))) {
+        if (m[1] === 'text') current.text = val(m[2]);
+        else if (m[1] === 'start_ms') current.time = Number(m[2]);
+        else current.end = Number(m[2]);
+      } else if (current && /^\s{4}words:\s*$/.test(raw)) {inWords = true;}
+      else if (inWords && current && (m = /^\s{6}- text:\s*(.*)$/.exec(raw))) {
+        word = { text: val(m[1]), start: NaN, duration: 0 };
+        current.words.push(word);
+      } else if (word && (m = /^\s{8}(start_ms|end_ms|text):\s*(.*)$/.exec(raw))) {
+        if (m[1] === 'text') word.text = val(m[2]);
+        else if (m[1] === 'start_ms') word.start = Number(m[2]);
+        else word.end = Number(m[2]);
+      }
+    }
+    return out.filter(line => {
+      if (!Number.isSafeInteger(line.time) || line.time < 0 || !line.text) return false;
+      line.duration = Number.isFinite(line.end) ? Math.max(0, line.end-line.time) : 0;
+      line.words = line.words.filter(w => {
+        if (!Number.isSafeInteger(w.start) || w.start < 0 || !Number.isFinite(w.end)) return false;
+        w.duration = Math.max(0,w.end-w.start); return w.duration >= 0;
+      });
+      if (line.words.map(w => w.text).join('').trim() !== line.text.trim()) line.words = [];
+      return true;
+    }).sort((a,b)=>a.time-b.time);
+  }
+  function normalizedSong(value) {
+    return String(value || '').normalize('NFKC').toLowerCase()
+      .replace(/[’‘“”"'·•.，,\/\\()（）[\]【】\-–—_!！?？:：]/g,'')
+      .replace(/\s+/g,'');
+  }
+  function parseLrclibRecord(record, metadata) {
+    if (!record || record.instrumental) return null;
+    const title=normalizedSong(metadata?.title);
+    const artist=normalizedSong(metadata?.artist);
+    if (!title || !artist || normalizedSong(record.trackName) !== title) return null;
+    const officialArtist = normalizedSong(record.artistName);
+    if (!officialArtist || !(officialArtist.includes(artist) || artist.includes(officialArtist))) return null;
+    const durationMs=Number(metadata?.durationMs||0);
+    if (durationMs > 0 && Number.isFinite(record.duration) &&
+        Math.abs(record.duration*1000-durationMs) > 5000) return null;
+    const wordLines=record.hasWordSync ? parseLyricsfile(record.lyricsfile) : [];
+    if (wordLines.some(l=>l.words.length)) return {lines:wordLines,kind:'lyricsfile',provider:'LRCLIB'};
+    const lines=parseLrc(record.syncedLyrics || '');
+    return lines.length ? {lines,kind:'lrc',provider:'LRCLIB'} : null;
+  }
+
   function resolveIndex(lines, timeMs) {
     if (!lines.length) return -1;
     let left = 0, right = lines.length - 1, best = -1;
@@ -180,5 +247,5 @@
     };
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, parseLrc, parseYrc,
-    attachTranslations, parseNcmLyrics, resolveIndex, lineProgress, wordProgress, lyricProgress, createClock };
+    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord, resolveIndex, lineProgress, wordProgress, lyricProgress, createClock };
 });
