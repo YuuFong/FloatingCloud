@@ -13,6 +13,8 @@ cmake -S "$root/native" -B "$root/build/native" -A x64 "-DWEBVIEW2_SDK_ROOT=$sdk
 if($LASTEXITCODE -ne 0){throw 'CMake 配置失败'}
 cmake --build "$root/build/native" --config Release
 if($LASTEXITCODE -ne 0){throw 'CMake 构建失败'}
+python "$root/tools/generate_desktop.py"
+if($LASTEXITCODE -ne 0){throw "Desktop HTML generation failed"}
 Copy-Item "$root/build/native/Release/native.dll" "$root/plugin/native.dll" -Force
 python "$root/tools/pack_plugin.py"
-Write-Host 'Completed: FloatingCloud-v0.4.0.plugin'
+Write-Host 'Completed: FloatingCloud-v0.4.1.plugin'
