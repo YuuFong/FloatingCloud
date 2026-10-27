@@ -43,8 +43,8 @@ document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click'
 }));
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function openControls() {
- root.classList.add('controls-open');clearTimeout(controlsTimer);
- controlsTimer=setTimeout(()=>{root.classList.remove('controls-open');document.getElementById('mini-settings').classList.remove('open');postAction('settingsClosed');},6500);
+ root.classList.add('controls-open');postAction('controlsOpen');clearTimeout(controlsTimer);
+ controlsTimer=setTimeout(()=>{root.classList.remove('controls-open');document.getElementById('mini-settings').classList.remove('open');postAction('settingsClosed');postAction('controlsClosed');},6500);
 }
 document.getElementById('gear').addEventListener('click',ev=>{
  ev.stopPropagation();const open=document.getElementById('mini-settings').classList.toggle('open');postAction(open?'settingsOpen':'settingsClosed');openControls();
@@ -72,7 +72,9 @@ function receive(message){
       playStatus=Boolean(p.playing);renderPlayState();break;
     }
     case 'locked':if(message.payload) root.classList.remove('controls-open');break;
-    case 'interaction':if(message.payload?.lyricClick) {root.classList.contains('controls-open')?root.classList.remove('controls-open'):openControls();}break;
+    case 'interaction':if(message.payload?.lyricClick) {root.classList.contains('controls-open')
+ ? (root.classList.remove('controls-open'),document.getElementById('mini-settings').classList.remove('open'),postAction('settingsClosed'),postAction('controlsClosed'))
+ : openControls();}break;
   }
 }
 window.chrome?.webview?.addEventListener('message',ev=>receive(ev.data));
