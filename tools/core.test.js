@@ -76,3 +76,44 @@ test('invalid config values are clamped and color rejects arbitrary CSS', () => 
   assert.equal(s.fontSize,64);assert.equal(s.width,300);
   assert.equal(s.color,C.DEFAULTS.color);assert.equal(s.animationSpeed,.5);
 });
+
+test('two lyric rows always share one font size after old config migration',()=>{
+ const normalized=C.normalizeSettings({fontSize:34,nextFontSize:18,showTranslation:true});
+ assert.equal(normalized.fontSize,34);
+ assert.equal(Object.hasOwn(normalized,'nextFontSize'),false);
+ assert.equal(normalized.showTranslation,false);
+});
+test('Lyricsfile word timestamps use absolute milliseconds',()=>{
+ const yaml=[
+ "version: '1.0'",
+ "lines:",
+ "  - text: 'Hello world'",
+ "    start_ms: 12000",
+ "    end_ms: 15000",
+ "    words:",
+ "      - text: 'Hello '",
+ "        start_ms: 12000",
+ "        end_ms: 12500",
+ "      - text: 'world'",
+ "        start_ms: 12500",
+ "        end_ms: 14500",
+ "plain: |",
+ "  Hello world",
+ ].join('\n');
+ const lines=C.parseLyricsfile(yaml);
+ assert.equal(lines.length,1);assert.equal(lines[0].words.length,2);
+ assert.equal(lines[0].words[1].start,12500);
+ assert.equal(C.wordProgress(lines[0].words[1],13500),.5);
+ const record={trackName:'Hello!',artistName:'Someone',duration:120,hasWordSync:true,lyricsfile:yaml};
+ const matched=C.parseLrclibRecord(record,{title:'Hello',artist:'Someone',durationMs:120000});
+ assert.equal(matched.kind,'lyricsfile');
+ assert.equal(C.parseLrclibRecord(record,{title:'Different',artist:'Someone'}),null);
+ assert.equal(C.parseLrclibRecord(record,{title:'Hello',artist:'Someone',durationMs:130000}),null);
+});
+test('LRCLIB plain synced lines downgrade to LRC, never fabricate word timings',()=>{
+ const rec={trackName:'song',artistName:'artist',duration:180,hasWordSync:false,
+   syncedLyrics:'[00:01.000]first\n[00:04.000]second'};
+ const parsed=C.parseLrclibRecord(rec,{title:'Song',artist:'Artist',durationMs:180000});
+ assert.equal(parsed.kind,'lrc');
+ assert.equal(parsed.lines[0].words.length,0);
+});
