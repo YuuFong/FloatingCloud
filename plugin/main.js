@@ -80,7 +80,9 @@
       const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}`;
       if (key === this.trackKey) return;
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
-      this.lines = []; this.kind = ''; this.busy = false; this.error = '';
+      this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
+      this.durationMs = Number(song?.duration ?? 0);
+      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = '';
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
@@ -88,29 +90,48 @@
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
       } catch (_) { /* ignore */ }
-      if (!(id > 0)) { this.error = song?.trackId ? '本地歌曲暂不支持在线歌词直连' : '暂无正在播放的歌曲'; notify(); return; }
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind; notify(); return; }
+      if (!(id > 0) && (!this.title || !this.artist)) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||''; notify(); return; }
       this.busy = true; notify();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      let result=null, lastError='';
       try {
-        // Uses the same NCM lyric endpoint demonstrated by AMLL's BetterNCM adapter.
-        const base = (typeof window.APP_CONF?.domain === 'string' && /^https:\/\//.test(window.APP_CONF.domain))
-          ? window.APP_CONF.domain : 'https://music.163.com';
-        const url = `${base}/api/song/lyric/v1?tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&cp=false&id=${encodeURIComponent(id)}`;
-        const resp = await fetch(url, { signal: ctrl.signal });
-        if (!resp.ok) throw Error(`歌词接口 HTTP ${resp.status}`);
-        const data = await resp.json();
-        const result = Core.parseNcmLyrics(data);
-        if (this.trackKey !== key || ctrl.signal.aborted) return;
-        this.lines = result.lines; this.kind = result.kind;
-        if (!result.lines.length) this.error = '没有找到同步歌词';
-        this.cache.set(key, result);
-        if (this.cache.size > 30) this.cache.delete(this.cache.keys().next().value);
-      } catch (e) {
-        if (this.trackKey === key) this.error = ctrl.signal.aborted ? '歌词请求超时或切歌取消' : `歌词获取失败：${String(e.message || e)}`;
+        // Preserve actual YRC word timing when available from Netease.
+        if (id > 0) {
+          try {
+            const base=(typeof window.APP_CONF?.domain === 'string' &&
+                /^https:\/\//.test(window.APP_CONF.domain))
+              ? window.APP_CONF.domain : 'https://music.163.com';
+            const url=base+'/api/song/lyric/v1?tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&cp=false&id='+encodeURIComponent(id);
+            const response=await fetch(url,{signal:ctrl.signal});
+            if(!response.ok) throw Error('网易云 HTTP '+response.status);
+            const parsed=Core.parseNcmLyrics(await response.json());
+            if(parsed.lines.length) result={...parsed,provider:'网易云'};
+          } catch (e) {if(ctrl.signal.aborted) throw e;lastError=String(e.message||e);}
+        }
+        // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
+        // No invented word times: a strict song/artist/duration match is required.
+        if (!result && this.title && this.artist && !ctrl.signal.aborted) {
+          const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
+          if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
+          const response=await fetch('https://lrclib.net/api/get?'+args,{
+            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.1 (https://github.com/YuuFong/FloatingCloud)'}});
+          if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
+          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),{
+            title:this.title,artist:this.artist,durationMs:this.durationMs});
+          else if(response.status!==404) throw Error('LRCLIB HTTP '+response.status);
+        }
+        if(this.trackKey!==key || ctrl.signal.aborted) return;
+        if(result?.lines?.length) {
+          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;
+          this.cache.set(key,result);
+          if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
+        } else this.error = lastError ? '未找到歌词（网易云：'+lastError+'）' : '未找到可信的同步歌词';
+      } catch(e) {
+        if(this.trackKey===key) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
         clearTimeout(timer);
-        if (this.trackKey === key) { this.busy = false; notify(); }
+        if(this.trackKey===key) {this.busy=false;notify();}
       }
     }
     refresh() {
@@ -187,6 +208,15 @@
       const api=live?.api;
       if (action === 'previous') api?.previous?.();
       else if (action === 'next') api?.next?.();
+      else if (action === 'seekBack' || action === 'seekForward') {
+        const current=api?.getTimeline?.()?.currentTime;
+        if (Number.isFinite(current) && typeof api?.seekTo === 'function') {
+          const dest=Math.max(0,current+(action==='seekBack'?-500:500));
+          api.seekTo(dest);live?.clock.anchor(dest,api.getPlaybackStatus()==='Playing');
+        }
+      } else if (action === 'fontSmaller' || action === 'fontLarger') {
+        setSettings({fontSize:Math.min(64,Math.max(14,settings.fontSize+(action==='fontLarger'?1:-1)))});
+      }
       else if (action === 'toggle') {
         if (api?.getPlaybackStatus?.() === 'Playing') api.pause?.();
         else api?.play?.();
@@ -431,7 +461,7 @@
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
       ['align','对齐方式','select',['left','center','right']],
       ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
-      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用逐词高亮（YRC）/行级扫描（LRC）','checkbox']
+      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
     ];
     for (const [key, caption, type, a, b, step] of configs) {
       const label = el('label','fc-control');
@@ -501,7 +531,7 @@
       const progress = Core.lyricProgress(lines, idx, ms);
       rolling.update(idx, progress, ms);
       status.textContent = showingReal
-        ? (!song?.api ? '未连接 InfLink-rs：缺少可靠播放时间轴' : song.busy ? `正在获取歌词：${song.title}` : song.error || `正在播放：${song.title || '未知歌曲'} · ${song.kind === 'yrc' ? 'YRC 逐词计时' : 'LRC 行级计时'}`)
+        ? (!song?.api ? '未连接 InfLink-rs：缺少可靠播放时间轴' : song.busy ? `正在获取歌词：${song.title}` : song.error || `正在播放：${song.title || '未知歌曲'} · ${song.provider || '未知来源'} · ${(song.kind === 'yrc' || song.kind === 'lyricsfile') ? '逐词计时' : 'LRC 行级计时'}`)
         : 'YRC 逐词动画演示 · 14 秒循环，无需播放歌曲';
       raf = requestAnimationFrame(drawFrame);
     };
