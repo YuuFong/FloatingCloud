@@ -172,7 +172,7 @@
     }
     unlock() {
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
-      this.call('lock',['false']);this.message='已解锁：拖动上方细条可移动位置';
+      this.call('lock',['false']);this.message='已解锁：按住歌词本身即可拖动';
     }
     applySettings(s) {
       if (!this.enabled)return;
@@ -215,21 +215,17 @@
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
-  .fc-track{position:absolute;top:16px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
-  .fc-line{height:var(--fc-pitch);display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.22;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color)}
-  .fc-line-primary{font-size:var(--fc-font-size);font-weight:var(--fc-weight);color:var(--fc-color)}
-  .fc-line-secondary{font-size:var(--fc-next-size);font-weight:var(--fc-weight);color:var(--fc-next)}
-  .fc-line-paired .fc-text-box{font-size:var(--fc-font-size)}
-  .fc-line-secondary.fc-line-paired .fc-text-box{font-size:var(--fc-next-size)}
-  .fc-line-paired .fc-subline{font-size:var(--fc-next-size);color:var(--fc-next);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:3px}
+  .fc-track{position:absolute;top:8px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transition:color 200ms ease}
+  .fc-line-primary{color:var(--fc-color)}
+  .fc-line-secondary{color:var(--fc-next)}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
   .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
-  .fc-stage:not(.fc-no-motion) .fc-text-highlight{transition:clip-path 90ms linear}
-  .fc-stage:not(.fc-no-motion) .fc-word-highlight{transition:clip-path 90ms linear}
+  /* rAF drives high-frequency YRC scanning; CSS transitions would restart every frame and lag. */
   .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
   .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
   .fc-control select{max-width:100%;text-overflow:ellipsis}
@@ -249,126 +245,143 @@
     if (text !== undefined) node.textContent = text;
     return node;
   }
+  // Two visually stable lyric rows with an offscreen third row for the incoming line.
+  // Adapted from TaskbarLyrics' separation of roll transitions and progress patches.
   class RollingView {
     constructor(stage) {
       this.stage = stage;
-      this.track = el('div', 'fc-track'); stage.appendChild(this.track);
+      this.track = el('div', 'fc-track'); stage.append(this.track);
       this.rows = [0, 1, 2].map(() => el('div', 'fc-line'));
-      this.rows.forEach(r => this.track.append(r));
-      this.index = null; this.busy = false; this.pending = null;
-      this.timer = null; this.generation = 0; this.lines = [];
-      this.scanRows = [null, null, null]; this.lastPosition = 0;
+      this.rows.forEach(node => this.track.append(node));
+      this.scanRows = [null, null, null];
+      this.lines = []; this.index = null; this.settings = null;
+      this.busy = false; this.pending = null;
+      this.timer = null; this.generation = 0; this.lastPosition = 0;
     }
     applySettings(s) {
       this.settings = s;
-      this.paired = Boolean(s.showTranslation && this.lines.some(l => l.translation));
+      // Exactly the same font metrics for the current and next lyric.
+      this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
       const v = this.stage.style;
-      const pitch = this.paired
-        ? Math.ceil(s.fontSize * 1.3 + s.nextFontSize * 1.35 + s.lineGap + 10)
-        : Math.ceil(Math.max(s.fontSize * 1.3, s.nextFontSize * 1.45) + s.lineGap);
-      this.pitch = pitch;
-      v.setProperty('--fc-pitch', pitch + 'px'); v.setProperty('--fc-font-size', s.fontSize + 'px');
-      v.setProperty('--fc-next-size', s.nextFontSize + 'px');
+      v.setProperty('--fc-pitch', this.pitch + 'px');
+      v.setProperty('--fc-font-size', s.fontSize + 'px');
       v.setProperty('--fc-weight', String(s.fontWeight));
       v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
-      v.setProperty('--fc-highlight', s.highlight); v.setProperty('--fc-stroke', s.strokeWidth + 'px');
-      v.setProperty('--fc-stroke-color', s.strokeColor); v.setProperty('--fc-shadow', s.shadow + 'px');
-      v.setProperty('--fc-align', s.align); v.fontFamily = s.font;
-      v.height = (pitch * (this.paired ? 1 : 2) + 16) + 'px';
+      v.setProperty('--fc-highlight', s.highlight);
+      v.setProperty('--fc-stroke', s.strokeWidth + 'px');
+      v.setProperty('--fc-stroke-color', s.strokeColor);
+      v.setProperty('--fc-shadow', s.shadow + 'px');
+      v.setProperty('--fc-align', s.align);
+      v.fontFamily = s.font;
+      v.height = (this.pitch * 2 + 16) + 'px';
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.cancelTransition();
-      if (this.index !== null) { this.draw(); this.renderScan(0, this.lastPosition, this.scanRows[0]); }
+      if (this.index !== null) {
+        this.draw();
+        this.renderScan(Core.lineProgress(this.lines, this.index, this.lastPosition), this.lastPosition, this.scanRows[0]);
+      }
     }
     setLines(lines) {
       if (this.lines === lines) return;
-      this.lines = lines || []; this.cancelTransition(); this.index = null;
+      this.lines = Array.isArray(lines) ? lines : [];
+      this.cancelTransition(); this.index = null;
       if (this.settings) this.applySettings(this.settings);
     }
     cancelTransition() {
-      this.generation++; clearTimeout(this.timer); this.timer = null;
-      this.busy = false; this.pending = null; this.track.style.transition = 'none';
+      ++this.generation;
+      clearTimeout(this.timer); this.timer = null;
+      this.busy = false; this.pending = null;
+      this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
     }
-    draw() {
-      const i = Math.max(0, this.index ?? 0);
-      this.scanRows = [null, null, null];
-      this.rows.forEach((r, row) => {
-        const line = this.lines[i + row];
-        const primary = row === 0;
-        r.className = 'fc-line ' + (primary ? 'fc-line-primary' : 'fc-line-secondary') +
-          (this.paired ? ' fc-line-paired' : '');
-        r.replaceChildren();
-        const container = el('div', 'fc-text-box');
-        const content = line?.text || (primary ? '暂无歌词' : '');
+    renderRow(rowIndex, lineIndex) {
+      const r = this.rows[rowIndex], line = this.lines[lineIndex];
+      r.className = 'fc-line ' + (rowIndex === 0 ? 'fc-line-primary' : 'fc-line-secondary');
+      r.replaceChildren();
+      const container = el('div', 'fc-text-box');
+      const content = line?.text || (rowIndex === 0 ? '暂无歌词' : '');
+      const words = line?.words || [];
+      if (words.length && words.map(w => w.text).join('').trim() === content.trim()) {
         const segments = [];
-        if (line?.words?.length && line.words.map(w => w.text).join('').trim() === content.trim()) {
-          // Actual YRC word timestamps; each token owns an independently clipped overlay.
-          for (const word of line.words) {
-            const wordNode = el('span', 'fc-word');
-            wordNode.append(el('span', 'fc-word-base', word.text));
-            const highlighted = el('span', 'fc-word-highlight', word.text);
-            wordNode.append(highlighted); container.append(wordNode);
-            segments.push({ word, node: wordNode });
-          }
-          this.scanRows[row] = { segments, mode: 'yrc' };
-        } else {
-          container.append(el('span', 'fc-text-base', content));
-          const highlighted = el('span', 'fc-text-highlight', content);
-          container.append(highlighted);
-          this.scanRows[row] = { node: container, mode: 'lrc' };
+        for (const word of words) {
+          const span = el('span', 'fc-word');
+          span.append(el('span', 'fc-word-base', word.text));
+          span.append(el('span', 'fc-word-highlight', word.text));
+          container.append(span);
+          segments.push({ word, node: span });
         }
-        r.append(container);
-        if (this.paired) r.append(el('div', 'fc-subline', line?.translation || '　'));
-      });
+        this.scanRows[rowIndex] = { mode: 'yrc', segments };
+      } else {
+        container.append(el('span', 'fc-text-base', content));
+        container.append(el('span', 'fc-text-highlight', content));
+        this.scanRows[rowIndex] = { mode: 'lrc', node: container };
+      }
+      r.append(container);
     }
-    // Like TaskbarLyrics, frequent progress updates do not restart rolling transitions.
+    draw() {
+      const start = Math.max(0, this.index ?? 0);
+      for (let row = 0; row < 3; row++) this.renderRow(row, start + row);
+    }
     renderScan(progress, timeMs, scan) {
       if (!scan) return;
       if (scan.mode === 'yrc') {
         for (const { word, node } of scan.segments) {
-          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 1;
-          node.style.setProperty('--fc-word-progress', `${(value * 100).toFixed(3)}%`);
+          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 0;
+          node.style.setProperty('--fc-word-progress', (value * 100).toFixed(3) + '%');
         }
       } else {
-        const value = this.settings.enableWordScan ? progress : 1;
-        scan.node.style.setProperty('--fc-progress', `${(Math.max(0,Math.min(1,value)) * 100).toFixed(3)}%`);
+        const value = this.settings.enableWordScan ? Math.max(0, Math.min(1, progress)) : 0;
+        scan.node.style.setProperty('--fc-progress', (value * 100).toFixed(3) + '%');
       }
+    }
+    promote(nextIndex, ticket) {
+      if (ticket !== this.generation) return;
+      clearTimeout(this.timer); this.timer = null;
+      // At -pitch: row 1 is visually at y=0. After removing row 0 and
+      // setting transform to 0, *the same DOM row* remains at y=0.
+      // No re-render, font swap, or one-frame snap at the roll boundary.
+      this.track.style.transition = 'none';
+      const departed = this.rows.shift();
+      departed.remove();
+      this.rows[0].className = 'fc-line fc-line-primary';
+      const incoming = el('div', 'fc-line fc-line-secondary');
+      this.rows.push(incoming); this.track.append(incoming);
+      this.scanRows.shift(); this.scanRows.push(null);
+      this.track.style.transform = 'translate3d(0,0,0)';
+      this.index = nextIndex;
+      this.renderRow(2, this.index + 2);
+      this.busy = false;
+      const pending = this.pending; this.pending = null;
+      if (pending) this.update(pending.index, pending.progress, pending.timeMs);
     }
     update(index, progress, timeMs) {
       if (!this.settings?.enabled) { this.stage.style.opacity = '.28'; return; }
       this.stage.style.opacity = '1'; this.lastPosition = timeMs;
-      // Before first timestamp do not highlight upcoming lyrics.
       if (index < 0) { index = 0; progress = 0; }
       if (this.index === null) { this.index = index; this.draw(); }
       if (this.busy) {
         this.pending = { index, progress, timeMs };
-        this.renderScan(progress, timeMs, this.scanRows[1]);
+        if (index === this.index + 1) this.renderScan(progress, timeMs, this.scanRows[1]);
         return;
       }
       if (index === this.index) { this.renderScan(progress, timeMs, this.scanRows[0]); return; }
       if (index !== this.index + 1 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        this.index = index; this.draw(); this.renderScan(progress, timeMs, this.scanRows[0]); return;
+        this.cancelTransition(); this.index = index; this.draw();
+        this.renderScan(progress, timeMs, this.scanRows[0]); return;
       }
       this.busy = true;
       const ticket = ++this.generation;
-      const duration = (this.paired ? 760 : 560) / this.settings.animationSpeed;
+      const duration = 560 / this.settings.animationSpeed;
       this.renderScan(progress, timeMs, this.scanRows[1]);
-      this.track.style.transition = `transform ${duration}ms cubic-bezier(0.22,0.72,0.24,1)`;
+      this.track.style.transition = 'none';
+      this.track.style.transform = 'translate3d(0,0,0)';
       requestAnimationFrame(() => {
-        if (ticket === this.generation) this.track.style.transform = `translate3d(0,-${this.pitch}px,0)`;
-      });
-      this.timer = setTimeout(() => {
         if (ticket !== this.generation) return;
-        this.index = index;
-        this.track.style.transition = 'none';
-        this.track.style.transform = 'translate3d(0,0,0)';
-        this.draw(); this.busy = false;
-        const queued = this.pending; this.pending = null;
-        const target = queued ?? { index, progress, timeMs };
-        if (target.index === this.index) this.renderScan(target.progress, target.timeMs, this.scanRows[0]);
-        else this.update(target.index, target.progress, target.timeMs);
-      }, duration + 28);
+        this.track.style.transition = 'transform ' + duration + 'ms cubic-bezier(0.22,0.72,0.24,1)';
+        this.track.style.transform = 'translate3d(0,-' + this.pitch + 'px,0)';
+      });
+      this.timer = setTimeout(() => this.promote(index, ticket), duration + 36);
     }
     destroy() { this.cancelTransition(); this.stage.replaceChildren(); }
   }
@@ -376,7 +389,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.0（桌面浮窗实验版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.1（双行平滑滚动测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -412,13 +425,13 @@
     const configs = [
       ['enabled','启用预览','checkbox'], ['font','字体','select',Core.FONT_OPTIONS],
       ['fontWeight','字体粗细（参考 TaskbarLyrics）','select',Core.WEIGHT_OPTIONS],
-      ['fontSize','主行字号','range',14,64,1],['nextFontSize','副行字号','range',12,56,1],
+      ['fontSize','歌词字号（两行统一）','range',14,64,1],
       ['color','文字颜色','color'],['nextColor','副行颜色','color'],['highlight','扫描高亮颜色','color'],
       ['strokeWidth','描边宽度','range',0,5,.2],['strokeColor','描边颜色','color'],
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
       ['align','对齐方式','select',['left','center','right']],
       ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
-      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用逐词高亮（YRC）/行级扫描（LRC）','checkbox'],['showTranslation','有翻译时显示译文','checkbox']
+      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用逐词高亮（YRC）/行级扫描（LRC）','checkbox']
     ];
     for (const [key, caption, type, a, b, step] of configs) {
       const label = el('label','fc-control');
@@ -446,7 +459,7 @@
     }
     panel.append(el('p','fc-hint','字体提示：思源黑体只使用本机已安装字体，不会随插件附带字体文件；如本机没安装会自动使用后备字体。'));
     panel.append(el('p','fc-mini','逐词说明：YRC 提供词组起止时间，可逐词高亮；普通 LRC 只有整行时间戳，使用行级平滑扫描，不能还原真实的每个字时间。播放时间轴使用 InfLink-rs；仅浏览器预览不连接网易云。'));
-    panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。桌面悬停按钮支持上/暂停/下一曲、锁定、关闭；锁定后请从这里解锁。无歌曲进度条。'));
+    panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。点击歌词显示工具栏，直接按住歌词拖动，工具栏包含快退/快进半秒、上一曲、播放/暂停、下一曲、锁定和关闭；锁定后可从这里解锁。无歌曲进度条。'));
     const rolling = new RollingView(stage); rolling.applySettings(settings);
     let useDemo = true, raf = 0, lastTrackKey = null, lastLines = null;
     const sub = () => rolling.applySettings(settings); subscribers.add(sub);
