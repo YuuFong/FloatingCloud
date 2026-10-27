@@ -1,0 +1,24 @@
+name: FloatingCloud Native Win64
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'plugin/**'
+      - 'native/**'
+      - 'tools/**'
+      - '.github/workflows/windows-build.yml'
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and package x64 plugin
+        shell: pwsh
+        run: .\tools\build-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FloatingCloud-plugin-win64
+          path: FloatingCloud-v0.4.0.plugin
