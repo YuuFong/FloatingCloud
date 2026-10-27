@@ -49,6 +49,7 @@ std::atomic<int> requestedAction{0}; // 1 prev, 2 toggle, 3 next, 4 close, 5 loc
 bool locked = false; // accessed only from window thread
 bool lyricPointerDown=false, lyricDidDrag=false;
 bool settingsPopupOpen=false;
+bool controlsVisible=false;
 POINT dragStartScreen{};
 POINT dragWindowOrigin{};
 bool visible = false;
@@ -123,7 +124,9 @@ void webReceived(ICoreWebView2WebMessageReceivedEventArgs* args) {
     if (FAILED(args->TryGetWebMessageAsString(&str))||!str) return;
     std::wstring cmd(str);
     CoTaskMemFree(str);
-    if (cmd==L"settingsOpen") settingsPopupOpen=true;
+    if (cmd==L"controlsOpen") controlsVisible=true;
+    else if (cmd==L"controlsClosed") {controlsVisible=false;settingsPopupOpen=false;}
+    else if (cmd==L"settingsOpen") settingsPopupOpen=true;
     else if (cmd==L"settingsClosed") settingsPopupOpen=false;
     else if (cmd==L"seekBack") requestedAction.store(6);
     else if (cmd==L"seekForward") requestedAction.store(7);
@@ -236,7 +239,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             if(locked) return 0;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
             // Reserve upper 58px for the toolbar; any lyric text starts dragging.
-            if(p.y >= 58 && !(settingsPopupOpen && p.y < 110)) {
+            if (!(controlsVisible && p.y < 58) && !(settingsPopupOpen && p.y < 110)) {
                 lyricPointerDown=true;lyricDidDrag=false;
                 GetCursorPos(&dragStartScreen);
                 RECT wr{};GetWindowRect(h,&wr);
