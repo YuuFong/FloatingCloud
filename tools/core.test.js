@@ -117,3 +117,12 @@ test('LRCLIB plain synced lines downgrade to LRC, never fabricate word timings',
  assert.equal(parsed.kind,'lrc');
  assert.equal(parsed.lines[0].words.length,0);
 });
+
+test('TaskbarLyrics-style continuous word scan respects timed syllables',()=>{
+ const [line]=C.parseYrc('[1000,3000](0,1000,0)hello (1500,1000,0)world');
+ assert.equal(C.wordScanProgress(line,1000),0);
+ assert.ok(Math.abs(C.wordScanProgress(line,1500)-(3/11))<1e-5);
+ assert.ok(Math.abs(C.wordScanProgress(line,2250)-(6/11))<1e-5);
+ assert.ok(Math.abs(C.wordScanProgress(line,3000)-(8.5/11))<1e-5);
+ assert.equal(C.wordScanProgress(line,4000),1);
+});
