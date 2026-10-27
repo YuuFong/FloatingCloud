@@ -15,6 +15,8 @@ cmake --build "$root/build/native" --config Release
 if($LASTEXITCODE -ne 0){throw 'CMake 构建失败'}
 python "$root/tools/generate_desktop.py"
 if($LASTEXITCODE -ne 0){throw "Desktop HTML generation failed"}
+python "$root/tools/smoke_desktop.py"
+if($LASTEXITCODE -ne 0){throw "Desktop HTML smoke test failed"}
 Copy-Item "$root/build/native/Release/native.dll" "$root/plugin/native.dll" -Force
 python "$root/tools/pack_plugin.py"
 Write-Host 'Completed: FloatingCloud-v0.4.1.plugin'
