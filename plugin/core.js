@@ -26,10 +26,10 @@
     enabled: true,
     font: 'Microsoft YaHei, sans-serif',
     fontWeight: 600, fontSize: 30,
-    nextFontSize: 23, color: '#d4d9e5', nextColor: '#a8b2c8',
+    color: '#d4d9e5', nextColor: '#a8b2c8',
     highlight: '#ffffff', strokeWidth: 1.4, strokeColor: '#222936',
     shadow: 3, lineGap: 12, align: 'center', width: 740,
-    offsetMs: 0, animationSpeed: 1, showTranslation: true,
+    offsetMs: 0, animationSpeed: 1, showTranslation: false,
     enableWordScan: true
   });
   const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
@@ -44,7 +44,6 @@
     return {
       enabled: Boolean(v.enabled), font, fontWeight,
       fontSize: clamp(number(v.fontSize, 30), 14, 64),
-      nextFontSize: clamp(number(v.nextFontSize, 23), 12, 56),
       color: color(v.color, DEFAULTS.color),
       nextColor: color(v.nextColor, DEFAULTS.nextColor),
       highlight: color(v.highlight, DEFAULTS.highlight),
@@ -56,7 +55,7 @@
       width: clamp(number(v.width, 740), 300, 1200),
       offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
-      showTranslation: Boolean(v.showTranslation),
+      showTranslation: false, // v0.4.1 always renders original + next line
       enableWordScan: Boolean(v.enableWordScan)
     };
   }
