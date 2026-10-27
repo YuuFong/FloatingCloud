@@ -37,6 +37,7 @@ constexpr UINT kVisible = WM_APP + 104;
 constexpr UINT kLock = WM_APP + 105;
 constexpr UINT kResize = WM_APP + 106;
 constexpr UINT kShutdown = WM_APP + 107;
+// The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
 std::mutex gate;
@@ -46,6 +47,9 @@ std::atomic<HWND> hwnd{nullptr};
 std::atomic<int> state{0}; // 0 idle, 1 starting, 2 running, 3 error
 std::atomic<int> requestedAction{0}; // 1 prev, 2 toggle, 3 next, 4 close, 5 lock
 bool locked = false; // accessed only from window thread
+bool lyricPointerDown=false, lyricDidDrag=false;
+POINT dragStartScreen{};
+POINT dragWindowOrigin{};
 bool visible = false;
 bool webReady = false;
 int width = 740;
@@ -95,9 +99,14 @@ void setLock(bool lock) {
     HWND window=hwnd.load();
     if (!window) return;
     LONG_PTR style=GetWindowLongPtrW(window,GWL_EXSTYLE);
-    if (lock) style |= WS_EX_TRANSPARENT;
-    else style &= ~static_cast<LONG_PTR>(WS_EX_TRANSPARENT);
+    // HTTRANSPARENT only forwards to same-thread windows. A layered + transparent
+    // top-level window is required to let clicks reach other processes.
+    // Keep WS_EX_NOREDIRECTIONBITMAP for the DirectComposition visual tree;
+    // the layered+composition combination must be verified on the target OS.
+    if (lock) style |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+    else style &= ~(static_cast<LONG_PTR>(WS_EX_TRANSPARENT) | WS_EX_LAYERED);
     SetWindowLongPtrW(window,GWL_EXSTYLE,style);
+    if(lock) SetLayeredWindowAttributes(window,0,255,LWA_ALPHA);
     SetWindowPos(window,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_FRAMECHANGED);
     sendToWeb("locked",lock?"true":"false");
 }
@@ -113,7 +122,11 @@ void webReceived(ICoreWebView2WebMessageReceivedEventArgs* args) {
     if (FAILED(args->TryGetWebMessageAsString(&str))||!str) return;
     std::wstring cmd(str);
     CoTaskMemFree(str);
-    if (cmd==L"previous") requestedAction.store(1);
+    if (cmd==L"seekBack") requestedAction.store(6);
+    else if (cmd==L"seekForward") requestedAction.store(7);
+    else if (cmd==L"fontSmaller") requestedAction.store(8);
+    else if (cmd==L"fontLarger") requestedAction.store(9);
+    else if (cmd==L"previous") requestedAction.store(1);
     else if (cmd==L"toggle") requestedAction.store(2);
     else if (cmd==L"next") requestedAction.store(3);
     else if (cmd==L"close") {
@@ -189,7 +202,7 @@ void initWebView() {
     if (FAILED(hr)) state.store(3);
 }
 void forwardMouse(UINT msg, WPARAM wp, LPARAM lp) {
-    if (!compositionController||locked) return;
+    if (!compositionController || locked) return;
     COREWEBVIEW2_MOUSE_EVENT_KIND kind;
     switch(msg) {
         case WM_MOUSEMOVE:kind=COREWEBVIEW2_MOUSE_EVENT_KIND_MOVE;break;
@@ -199,7 +212,10 @@ void forwardMouse(UINT msg, WPARAM wp, LPARAM lp) {
         default:return;
     }
     POINT pt{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
-    compositionController->SendMouseInput(kind,static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(0),0,pt);
+    auto keys = (msg == WM_LBUTTONDOWN || (msg == WM_MOUSEMOVE && (wp & MK_LBUTTON)))
+        ? COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS_LEFT_BUTTON
+        : static_cast<COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS>(0);
+    compositionController->SendMouseInput(kind,keys,0,pt);
     if (msg==WM_MOUSEMOVE) {
         TRACKMOUSEEVENT t{sizeof(t),TME_LEAVE,hwnd.load(),0}; TrackMouseEvent(&t);
     }
@@ -209,11 +225,48 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(h,&p);
-            // Top strip is a caption drag target, the rest is forwarded to WebView2.
-            if (p.y>=0 && p.y<19) return HTCAPTION;
+            // Always HTCLIENT when unlocked; lyrics are draggable via capture,
+            // while top-row buttons remain clickable in CompositionController.
             return HTCLIENT;
         }
-        case WM_MOUSEMOVE:case WM_MOUSELEAVE:case WM_LBUTTONDOWN:case WM_LBUTTONUP:
+        case WM_LBUTTONDOWN: {
+            if(locked) return 0;
+            POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+            // Reserve upper 58px for the toolbar; any lyric text starts dragging.
+            if(p.y >= 58) {
+                lyricPointerDown=true;lyricDidDrag=false;
+                GetCursorPos(&dragStartScreen);
+                RECT wr{};GetWindowRect(h,&wr);
+                dragWindowOrigin={wr.left,wr.top};
+                SetCapture(h);
+                return 0;
+            }
+            forwardMouse(msg,wp,lp);return 0;
+        }
+        case WM_MOUSEMOVE: {
+            if(lyricPointerDown) {
+                POINT now{};GetCursorPos(&now);
+                const int dx=now.x-dragStartScreen.x,dy=now.y-dragStartScreen.y;
+                if(!lyricDidDrag && (abs(dx)>4 || abs(dy)>4)) lyricDidDrag=true;
+                if(lyricDidDrag) SetWindowPos(h,HWND_TOPMOST,
+                    dragWindowOrigin.x+dx,dragWindowOrigin.y+dy,0,0,
+                    SWP_NOSIZE|SWP_NOACTIVATE);
+                return 0;
+            }
+            forwardMouse(msg,wp,lp);return 0;
+        }
+        case WM_LBUTTONUP:
+            if(lyricPointerDown) {
+                lyricPointerDown=false;
+                if(GetCapture()==h) ReleaseCapture();
+                // Short click toggles toolbar; drag only moves the window.
+                if(!lyricDidDrag) sendToWeb("interaction", "{\"lyricClick\":true}");
+                return 0;
+            }
+            forwardMouse(msg,wp,lp);return 0;
+        case WM_CAPTURECHANGED:
+            lyricPointerDown=false;return 0;
+        case WM_MOUSELEAVE:
             forwardMouse(msg,wp,lp);return 0;
         case WM_SIZE:sizeController();return 0;
         case kFrame: {
@@ -340,7 +393,9 @@ static const char* setWidth(void** a){
 static const char* poll(void**){
     switch(fc::requestedAction.exchange(0)){
         case 1:return "previous";case 2:return "toggle";case 3:return "next";
-        case 4:return "close";case 5:return "lock";default:return "";
+        case 4:return "close";case 5:return "lock";
+        case 6:return "seekBack";case 7:return "seekForward";
+        case 8:return "fontSmaller";case 9:return "fontLarger";default:return "";
     }
 }
 static const char* shutdown(void**){fc::stopHost();return "ok";}
