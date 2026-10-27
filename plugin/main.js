@@ -332,21 +332,11 @@
       const container = el('div', 'fc-text-box');
       const content = line?.text || (rowIndex === 0 ? '暂无歌词' : '');
       const words = line?.words || [];
-      if (words.length && words.map(w => w.text).join('').trim() === content.trim()) {
-        const segments = [];
-        for (const word of words) {
-          const span = el('span', 'fc-word');
-          span.append(el('span', 'fc-word-base', word.text));
-          span.append(el('span', 'fc-word-highlight', word.text));
-          container.append(span);
-          segments.push({ word, node: span });
-        }
-        this.scanRows[rowIndex] = { mode: 'yrc', segments };
-      } else {
-        container.append(el('span', 'fc-text-base', content));
-        container.append(el('span', 'fc-text-highlight', content));
-        this.scanRows[rowIndex] = { mode: 'lrc', node: container };
-      }
+      container.append(el('span', 'fc-text-base', content));
+      container.append(el('span', 'fc-text-highlight', content));
+      // One continuous text mask rather than separately clipped DOM syllables.
+      const timed=words.length && words.map(w=>w.text).join('').trim()===content.trim();
+      this.scanRows[rowIndex] = { mode:timed?'yrc':'lrc', node:container, lineIndex };
       r.append(container);
     }
     draw() {
@@ -355,15 +345,12 @@
     }
     renderScan(progress, timeMs, scan) {
       if (!scan) return;
-      if (scan.mode === 'yrc') {
-        for (const { word, node } of scan.segments) {
-          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 0;
-          node.style.setProperty('--fc-word-progress', (value * 100).toFixed(3) + '%');
-        }
-      } else {
-        const value = this.settings.enableWordScan ? Math.max(0, Math.min(1, progress)) : 0;
-        scan.node.style.setProperty('--fc-progress', (value * 100).toFixed(3) + '%');
-      }
+      const line=this.lines[scan.lineIndex];
+      const value=this.settings.enableWordScan
+        ? (scan.mode==='yrc' ? (Core.wordScanProgress(line,timeMs) ?? 0) : progress)
+        : 0;
+      scan.node.style.setProperty('--fc-progress',
+        (Math.max(0,Math.min(1,value))*100).toFixed(3) + '%');
     }
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
