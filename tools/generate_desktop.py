@@ -44,10 +44,10 @@ document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click'
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function openControls() {
  root.classList.add('controls-open');clearTimeout(controlsTimer);
- controlsTimer=setTimeout(()=>{root.classList.remove('controls-open');document.getElementById('mini-settings').classList.remove('open');},6500);
+ controlsTimer=setTimeout(()=>{root.classList.remove('controls-open');document.getElementById('mini-settings').classList.remove('open');postAction('settingsClosed');},6500);
 }
 document.getElementById('gear').addEventListener('click',ev=>{
- ev.stopPropagation();document.getElementById('mini-settings').classList.toggle('open');openControls();
+ ev.stopPropagation();const open=document.getElementById('mini-settings').classList.toggle('open');postAction(open?'settingsOpen':'settingsClosed');openControls();
 });
 document.getElementById('music').addEventListener('click',ev=>{
  ev.stopPropagation();showingInfo=!showingInfo;
