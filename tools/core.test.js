@@ -168,3 +168,11 @@ test('local lyric lookup mode migration and path settings',()=>{
   assert.equal(C.normalizeSettings({lyricsMode:'local-first'}).lyricsMode,'local-first');
   assert.ok(C.normalizeSettings({localLyricsFolders:'a'.repeat(6000)}).localLyricsFolders.length<=2048);
 });
+
+test('spectrum spacing is persistent, numeric and clamped for 32-bar layout',()=>{
+ assert.equal(C.normalizeSettings({}).spectrumGap,3);
+ assert.equal(C.normalizeSettings({spectrumGap:7}).spectrumGap,7);
+ assert.equal(C.normalizeSettings({spectrumGap:-20}).spectrumGap,0);
+ assert.equal(C.normalizeSettings({spectrumGap:999}).spectrumGap,14);
+ assert.equal(C.normalizeSettings({spectrumGap:'n/a'}).spectrumGap,3);
+});
