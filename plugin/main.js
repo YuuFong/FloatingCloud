@@ -133,6 +133,7 @@
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
       this.timer = null; this.sentLines = null; this.sentTrack = null;
+      this.lastFrameSentAt = 0; this.lastFrameTrack = null; this.inTick = false;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -159,7 +160,7 @@
       this.applySettings(settings);
       this.call('lock', [String(this.locked)]);
       this.sentTrack=null;this.sentLines=null;
-      if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
+      if (!this.timer) this.timer=setInterval(()=>this.tick(),250);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
       this.message='窗口正在打开';return true;
@@ -180,6 +181,11 @@
       this.call('width',[String(Math.round(s.width))]);
     }
     tick() {
+      if (!this.enabled || this.inTick)return;
+      this.inTick = true;
+      try { this.tickInternal(); } finally { this.inTick = false; }
+    }
+    tickInternal() {
       if (!this.enabled)return;
       const action = this.call('poll');
       if (action === 'close') {this.disable();return;}
@@ -197,7 +203,13 @@
         this.sentTrack=song?.trackKey;
         this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[]})]);
       }
-      this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
+      // Send position at most four times per second; a new track always gets a fresh frame.
+      const now = performance.now();
+      if (this.lastFrameTrack !== song?.trackKey || now - this.lastFrameSentAt >= 250) {
+        this.lastFrameTrack = song?.trackKey;
+        this.lastFrameSentAt = now;
+        this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
+      }
     }
     shutdown() {
       clearInterval(this.timer);this.timer=null;
@@ -504,6 +516,7 @@
     if (plugin.getConfig('desktop-visible-v1',false)) desktop.enable();
   });
   plugin.onUnload?.(()=>{desktop?.shutdown();live?.destroy();});
-  window.addEventListener('beforeunload',()=>{desktop?.shutdown();});
+  // Never block NCM's renderer unload on native thread shutdown. The OS owns the
+  // DLL/window-thread lifetime when the host process exits; close via UI remains available.
 
 })();
