@@ -22,7 +22,7 @@
 ## 安全和兼容限制
 
 - 当前是 v0.1 验证版，尚未进行用户 Windows 实机安装测试；CI 完成编译及无 GUI 自检不等于 Windows 上的每种安装情况都通过。
-- BetterNCM Installer II 与 InfLink-rs 来自各自官方 GitHub Release。虽然采用固定发布版本与 HTTPS，并验证 InfLink 的 ZIP 身份，但目前没有固定两个外部二进制的 SHA-256；正式公开发布前要补完整校验和数字签名策略。
+- BetterNCM Installer II 与 InfLink-rs 均来自各自官方 GitHub Release。InfLink-rs v3.4.0 已固定官方发布 SHA-256 并验证 ZIP 身份；BetterNCM Installer II v1.2.0 的官方 Release 暂未提供 SHA-256 digest，正式发布前仍需固定校验值并验证数字签名。
 - msimg32.dll 存在并不代表 BetterNCM 已成功载入；要在用户电脑实际验证。
 - 如果默认路径不存在、客户端自定义设置无法识别，安装器会要求用户选择已有 plugins 目录，而不是盲目写入。
 - 只在缺失时下载第三方依赖，FC 本体始终离线可用；首次部署依赖时仍需联网。
