@@ -97,7 +97,7 @@
       if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
       const timer = setTimeout(() => ctrl.abort(), 15500);
-      let result=null, lastError='';
+      let result=null, lastError='', autoOffline=false;
       try {
         // TaskbarLyrics Core's real QQMusic/QRC, Kugou/KRC, LRCLIB parsers.
         // The .NET helper is self-contained and launched by native.dll in a
@@ -120,6 +120,7 @@
                 let response;
                 try {response=JSON.parse(raw);}catch(_){break;}
                 if(response.trackKey!==key)continue;
+                if(response.error==='offline-no-local-lyrics')autoOffline=true;
                 if(response.pureMusic) {this.pureMusic=true;break;}
                 if(Array.isArray(response.lines) && response.lines.length) {
                   const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
@@ -140,7 +141,7 @@
         // No invented word times: a strict song/artist/duration match is required.
         // The renderer's LRCLIB fallback is only legal in an ONLINE mode.
         // No HTTP request whatsoever is issued in local-only/offline state.
-        const allowHttpFallback=settings.lyricsMode!=='local-only' &&
+        const allowHttpFallback=!autoOffline && settings.lyricsMode!=='local-only' &&
           !(typeof navigator !== 'undefined' && navigator.onLine===false);
         if (allowHttpFallback && !result && !this.pureMusic &&
             this.title && this.artist && !ctrl.signal.aborted) {
