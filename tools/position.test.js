@@ -136,3 +136,11 @@ test('dragged coordinate is staged BEFORE creating HWND on every restart',()=>{
    assert.equal(restart.saved['desktop-position-v1'].y,206);
  }
 });
+
+test('settings panel describes saved and actual window coordinates for drift reports',()=>{
+ const h=boot({'desktop-position-v1':{x:-400,y:212}});
+ assert.equal(h.saved['desktop-position-v1'].y,212);
+ const panel=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+ assert.ok(panel.includes('位置存档 '));
+ assert.ok(panel.includes('当前窗口 '));
+});
