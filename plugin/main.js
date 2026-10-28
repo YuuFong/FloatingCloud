@@ -5,6 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
+  const NcmPath = window.FloatingCloudNcmPath;
   const KEY = 'appearance-v2' /* keep existing users’ saved settings */;
   const DEMO = Core.parseNcmLyrics({
     yrc: { lyric: [
@@ -106,7 +107,11 @@
         if(nativeApi?.call) {
           try {
             const offlineHint=(typeof navigator !== 'undefined' && navigator.onLine===false);
-            const localFolders=settings.localLyricsFolders.split(/[;\r\n]+/).map(p=>p.trim()).filter(Boolean).slice(0,12);
+            const manualFolders=settings.localLyricsFolders.split(/[;\r\n]+/).map(p=>p.trim()).filter(Boolean);
+            // Client's own download directory first; manual roots are fallback.
+            // No client configuration files are modified or uploaded.
+            const ncmRoot=NcmPath?.getDownloadDir(window)||'';
+            const localFolders=[...new Set([ncmRoot,...manualFolders].filter(Boolean))].slice(0,12);
             const request={
               TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
               Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint
@@ -592,7 +597,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.6（本地离线歌词测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.7（自动识别网易云下载目录测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -662,6 +667,7 @@
       label.append(title, input, sub); grid.append(label);
     }
     panel.append(el('h3','fc-group-heading','歌词来源与离线使用'));
+    const ncmAutoPath=NcmPath?.getDownloadDir(window)||'';
     const offlineGrid=el('div','fc-form-grid');panel.append(offlineGrid);
     const modeLabel=el('label','fc-control');
     modeLabel.append(el('span','','检索方式'));
@@ -677,8 +683,11 @@
     modeSelect.value=settings.lyricsMode;
     modeSelect.addEventListener('change',()=>setSettings({lyricsMode:modeSelect.value}));
     modeLabel.append(modeSelect);offlineGrid.append(modeLabel);
+    panel.append(el('p','fc-hint',ncmAutoPath
+      ? '已自动检测到网易云下载目录：'+ncmAutoPath+'（无需填写）'
+      : '尚未识别网易云下载目录；仍会搜索 Windows「音乐」文件夹，可在下方补充本地目录。'));
     const rootLabel=el('label','fc-control');
-    rootLabel.append(el('span','','本地音乐/歌词目录（多个路径用分号分隔）'));
+    rootLabel.append(el('span','','额外音乐/歌词目录（可选，多个路径用分号分隔）'));
     const rootsInput=el('input');
     rootsInput.type='text';rootsInput.value=settings.localLyricsFolders;
     rootsInput.placeholder='D:\\Music;E:\\Downloads\\Songs';
@@ -686,7 +695,7 @@
     rootsInput.addEventListener('change',()=>setSettings({localLyricsFolders:rootsInput.value}));
     rootLabel.append(rootsInput);offlineGrid.append(rootLabel);
     panel.append(el('p','fc-hint',
-      '默认也会搜索 Windows「音乐」文件夹；额外目录只在本机检索，不上传文件或路径。支持旁置 LRC/QRC/KRC 和部分音频内嵌歌词。普通 LRC 是行级计时；离线模式完全跳过网络歌词源。'));
+      '默认先检测网易云本身的下载目录，也搜索 Windows「音乐」文件夹；额外目录只在本机检索，不上传文件或路径。支持旁置 LRC/QRC/KRC 和部分音频内嵌歌词。下载目录里未必存有独立歌词文件，缺失时会继续回退。'));
     panel.append(el('p','fc-hint','字体提示：思源黑体只使用本机已安装字体，不会随插件附带字体文件；如本机没安装会自动使用后备字体。'));
     panel.append(el('p','fc-mini','逐词说明：YRC 提供词组起止时间，可逐词高亮；普通 LRC 只有整行时间戳，使用行级平滑扫描，不能还原真实的每个字时间。播放时间轴使用 InfLink-rs；仅浏览器预览不连接网易云。'));
     panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。点击歌词显示工具栏，直接按住歌词拖动，工具栏包含快退/快进半秒、上一曲、播放/暂停、下一曲、锁定和关闭；锁定后可从这里解锁。无歌曲进度条。'));
