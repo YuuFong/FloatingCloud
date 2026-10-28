@@ -290,6 +290,6 @@
       reset() { basePosition = 0; baseStamp = now(); playing = false; }
     };
   }
-  return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, parseLrc, parseYrc,
+  return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
     attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
 });
