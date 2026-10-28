@@ -19,8 +19,14 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
 #toolbar .fc-tools-left,#toolbar .fc-tools-right{display:flex;gap:4px;align-items:center;min-width:0}
-#toolbar .fc-tools-left{justify-content:flex-end}
-#toolbar .fc-tools-right{justify-content:flex-start}
+/* Both side slots have exactly the same width. Spread items toward their
+   OUTER edges, not the play button, so the -0.5s left and × right edges
+   are precisely equidistant from the central play/pause axis. */
+#toolbar .fc-tools-left,#toolbar .fc-tools-right{justify-content:space-between}
+@media(max-width:450px){
+ #toolbar .fc-tools-left,#toolbar .fc-tools-right{gap:1px}
+ #toolbar button{font-size:11px;padding:4px 2px}
+}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
 #resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}
