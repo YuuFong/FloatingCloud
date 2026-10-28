@@ -130,3 +130,23 @@ test('mixed-language track keeps TBL translation placeholder on missing lines an
   assert.equal(view.rows[1].className,'fc-line fc-line-translation fc-translation-placeholder');
   assert.equal(view.rows[1].children[0].children[0].textContent,'…');
 });
+
+test('mixed Chinese and English originals stay in current plus next layout without translation data',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
+  }},el:(_tag,className,content)=>Object.assign(new FakeNode(),{className,textContent:content}),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const view=new context.RollingView(new FakeNode());
+  view.lines=[
+    {time:0,duration:3000,text:'我愿意改变',translation:'',words:[]},
+    {time:3000,duration:3000,text:'What can I do',translation:'',words:[]}
+  ];
+  view.index=0;
+  view.applySettings(Core.normalizeSettings({showTranslation:true}));
+  assert.equal(view.pairMode,false);
+  assert.equal(view.rows[1].className,'fc-line fc-line-secondary');
+  assert.equal(view.rows[1].children[0].children[0].textContent,'What can I do');
+});

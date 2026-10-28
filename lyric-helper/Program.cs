@@ -123,11 +123,15 @@ static class Program
             : new LyricPipelineCache(
                 new JsonLyricCacheStore<RawLyricCacheEnvelope>(Path.Combine(cacheDir,"raw-v1.json")),
                 new JsonLyricCacheStore<ParsedLyricCacheEnvelope>(Path.Combine(cacheDir,"parsed-v1.json")));
-        using var resolvedCache=new JsonResolvedLyricCache(Path.Combine(cacheDir,"resolved-v1.json"));
-        ILyricSource[] sources=[new NeteaseLyricSource(),new QqMusicLyricSource(),
-            new KugouLyricSource(),new LrcLibLyricSource()];
-        var order=new[] { KnownLyricProviders.Netease,KnownLyricProviders.QQMusic,
-            KnownLyricProviders.Kugou,KnownLyricProviders.LrcLib };
+        // v1 cached resolutions produced with Netease incorrectly ranked first.
+        // Start a new resolved cache so an upgrade re-evaluates TBL's source order.
+        using var resolvedCache=new JsonResolvedLyricCache(Path.Combine(cacheDir,"resolved-v2.json"));
+        ILyricSource[] sources=[new QqMusicLyricSource(),new KugouLyricSource(),
+            new NeteaseLyricSource(),new LrcLibLyricSource()];
+        // Match TBL's default trust order. The first high-confidence provider
+        // wins early, so putting Netease first changed both lyric and
+        // translation content even though the coordinator was the same.
+        var order=KnownLyricProviders.OnlineTrustOrder;
         using var coordinator=new LyricResolutionCoordinator(sources,
             [new LyricifyPayloadDecoder()],[new LyricifyPayloadParser()],cache,
             resolvedLyricCache:q.ForceRefresh?null:resolvedCache,
