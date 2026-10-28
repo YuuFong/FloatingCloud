@@ -76,3 +76,229 @@ test('invalid config values are clamped and color rejects arbitrary CSS', () => 
   assert.equal(s.fontSize,64);assert.equal(s.width,300);
   assert.equal(s.color,C.DEFAULTS.color);assert.equal(s.animationSpeed,.5);
 });
+
+test('two lyric rows always share one font size after old config migration',()=>{
+ const normalized=C.normalizeSettings({fontSize:34,nextFontSize:18,showTranslation:true});
+ assert.equal(normalized.fontSize,34);
+ assert.equal(Object.hasOwn(normalized,'nextFontSize'),false);
+ assert.equal(normalized.showTranslation,true);
+ assert.equal(C.normalizeSettings({showTranslation:false}).showTranslation,false);
+});
+test('Lyricsfile word timestamps use absolute milliseconds',()=>{
+ const yaml=[
+ "version: '1.0'",
+ "lines:",
+ "  - text: 'Hello world'",
+ "    start_ms: 12000",
+ "    end_ms: 15000",
+ "    words:",
+ "      - text: 'Hello '",
+ "        start_ms: 12000",
+ "        end_ms: 12500",
+ "      - text: 'world'",
+ "        start_ms: 12500",
+ "        end_ms: 14500",
+ "plain: |",
+ "  Hello world",
+ ].join('\n');
+ const lines=C.parseLyricsfile(yaml);
+ assert.equal(lines.length,1);assert.equal(lines[0].words.length,2);
+ assert.equal(lines[0].words[1].start,12500);
+ assert.equal(C.wordProgress(lines[0].words[1],13500),.5);
+ const record={trackName:'Hello!',artistName:'Someone',duration:120,hasWordSync:true,lyricsfile:yaml};
+ const matched=C.parseLrclibRecord(record,{title:'Hello',artist:'Someone',durationMs:120000});
+ assert.equal(matched.kind,'lyricsfile');
+ assert.equal(C.parseLrclibRecord(record,{title:'Different',artist:'Someone'}),null);
+ assert.equal(C.parseLrclibRecord(record,{title:'Hello',artist:'Someone',durationMs:130000}),null);
+});
+test('LRCLIB plain synced lines downgrade to LRC, never fabricate word timings',()=>{
+ const rec={trackName:'song',artistName:'artist',duration:180,hasWordSync:false,
+   syncedLyrics:'[00:01.000]first\n[00:04.000]second'};
+ const parsed=C.parseLrclibRecord(rec,{title:'Song',artist:'Artist',durationMs:180000});
+ assert.equal(parsed.kind,'lrc');
+ assert.equal(parsed.lines[0].words.length,0);
+});
+
+test('TaskbarLyrics-style continuous word scan respects timed syllables',()=>{
+ const [line]=C.parseYrc('[1000,3000](0,1000,0)hello (1500,1000,0)world');
+ assert.equal(C.wordScanProgress(line,1000),0);
+ assert.ok(Math.abs(C.wordScanProgress(line,1500)-(3/11))<1e-5);
+ assert.ok(Math.abs(C.wordScanProgress(line,2250)-(6/11))<1e-5);
+ assert.ok(Math.abs(C.wordScanProgress(line,3000)-(8.5/11))<1e-5);
+ assert.equal(C.wordScanProgress(line,4000),1);
+});
+
+test('word scan tolerates unmatched text and lights the whole line after the final word',()=>{
+ const line={text:'你好，世界！',time:1000,words:[
+   {text:'你好',start:1000,duration:500},
+   {text:'世界',start:2000,duration:500}
+ ]};
+ assert.equal(C.wordScanProgress(line,1250),1/6);
+ assert.equal(C.wordScanProgress(line,1750),2/6);
+ assert.equal(C.wordScanProgress(line,2250),4/6);
+ assert.equal(C.wordScanProgress(line,2500),1);
+ assert.equal(C.wordScanProgress({...line,words:[{text:'',start:1000,duration:500}]},2500),null);
+});
+
+test('Lyricsfile missing word end_ms derives next start or line end',()=>{
+  const yaml=[
+    'version: "1.0"',
+    'lines:',
+    '  - text: "This was a triumph."',
+    '    words:',
+    '      - text: "This "',
+    '        start_ms: 290',
+    '      - text: "was "',
+    '        start_ms: 536',
+    '      - text: "a "',
+    '        start_ms: 784',
+    '      - text: "triumph."',
+    '        start_ms: 923',
+    '    start_ms: 290',
+    '    end_ms: 3840',
+    'plain: |',
+    '  This was a triumph.'
+  ].join('\n');
+  const parsed=C.parseLyricsfile(yaml);
+  assert.equal(parsed.length,1);
+  assert.equal(parsed[0].words.length,4);
+  assert.equal(parsed[0].words[0].duration,246);
+  assert.equal(parsed[0].words[2].duration,139);
+  assert.equal(parsed[0].words[3].duration,2917);
+  assert.ok(C.wordScanProgress(parsed[0],1000)>0);
+});
+
+test('local lyric lookup mode migration and path settings',()=>{
+  const defaults=C.normalizeSettings({});
+  assert.equal(defaults.lyricsMode,'online-first');
+  assert.equal(defaults.localLyricsFolders,'');
+  const local=C.normalizeSettings({lyricsMode:'local-only',
+    localLyricsFolders:'D:\\Music;E:\\Songs'});
+  assert.equal(local.lyricsMode,'local-only');
+  assert.equal(local.localLyricsFolders,'D:\\Music;E:\\Songs');
+  assert.equal(C.normalizeSettings({lyricsMode:'invalid'}).lyricsMode,'online-first');
+  assert.equal(C.normalizeSettings({lyricsMode:'local-first'}).lyricsMode,'local-first');
+  assert.ok(C.normalizeSettings({localLyricsFolders:'a'.repeat(6000)}).localLyricsFolders.length<=2048);
+});
+
+test('spectrum spacing is persistent, numeric and clamped for 32-bar layout',()=>{
+ assert.equal(C.normalizeSettings({}).spectrumGap,3);
+ assert.equal(C.normalizeSettings({spectrumGap:7}).spectrumGap,7);
+ assert.equal(C.normalizeSettings({spectrumGap:-20}).spectrumGap,0);
+ assert.equal(C.normalizeSettings({spectrumGap:999}).spectrumGap,14);
+ assert.equal(C.normalizeSettings({spectrumGap:'n/a'}).spectrumGap,3);
+});
+
+test('TaskbarLyrics foreground hierarchy uses a single base and consistent alpha',()=>{
+ const p=C.lyricPalette('light',false);
+ assert.equal(p.primary,'rgba(255,255,255,0.9)');
+ assert.equal(p.translation,'rgba(255,255,255,0.7)');
+ assert.equal(p.secondary,'rgba(255,255,255,0.6)');
+ assert.equal(C.lyricPalette('dark',false).translation,'rgba(17,24,39,0.7)');
+ assert.equal(C.lyricPalette('system',true).primary,'rgba(17,24,39,0.9)');
+ assert.equal(C.lyricPalette('system',false).primary,'rgba(255,255,255,0.9)');
+});
+test('legacy separate colors are ignored while foreground mode is kept',()=>{
+ const old=C.normalizeSettings({
+   color:'#123456',nextColor:'#abcdef',highlight:'#ff0000',strokeColor:'#00ff00'
+ });
+ assert.equal(old.foregroundMode,'system');
+ assert.ok(!Object.hasOwn(old,'color'));
+ assert.ok(!Object.hasOwn(old,'nextColor'));
+ assert.ok(!Object.hasOwn(old,'highlight'));
+ assert.ok(!Object.hasOwn(old,'strokeColor'));
+ assert.equal(C.normalizeSettings({foregroundMode:'dark'}).foregroundMode,'dark');
+ assert.equal(C.normalizeSettings({foregroundMode:'custom'}).foregroundMode,'system');
+});
+
+test('instrumental placeholder lyrics trigger spectrum without false positive ordinary singing',()=>{
+ const silent=[{time:0,text:'纯音乐，请欣赏',kind:'lrc'}];
+ assert.equal(C.isInstrumentalPlaceholder(silent[0]),true);
+ assert.equal(C.isInstrumentalPlaceholder({text:'  纯音乐，请欣赏！  '}),true);
+ assert.equal(C.isInstrumentalPlaceholder({text:'Instrumental Version'}),true);
+ assert.equal(C.shouldDisplaySpectrum(silent,false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([],false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([],true,true,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'今天的纯音乐真好听'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'普通歌词'}],true,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([{text:'普通歌词'}],false,false,'force-spectrum'),true);
+ assert.equal(C.shouldDisplaySpectrum([],true,false,'lyrics-only'),false);
+});
+test('spectrum display mode is validated independently of spacing setting',()=>{
+ assert.equal(C.normalizeSettings({}).spectrumMode,'auto');
+ assert.equal(C.normalizeSettings({spectrumMode:'force-spectrum'}).spectrumMode,'force-spectrum');
+ assert.equal(C.normalizeSettings({spectrumMode:'lyrics-only'}).spectrumMode,'lyrics-only');
+ assert.equal(C.normalizeSettings({spectrumMode:'invalid'}).spectrumMode,'auto');
+});
+
+test('instrumental metadata plus a placeholder is still instrumental',()=>{
+ const lines=[
+  {time:0,text:'作曲 : Franz Schubert'},
+  {time:1000,text:'编曲：Studio Orchestra'},
+  {time:5000,text:'纯音乐，请欣赏'}
+ ];
+ assert.equal(C.isLyricCredit(lines[0]),true);
+ assert.equal(C.isLyricCredit(lines[1]),true);
+ assert.equal(C.isInstrumentalRecord(lines),true);
+ assert.equal(C.shouldDisplaySpectrum(lines,false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([...lines,{time:6000,text:'实际唱出的歌词'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'作曲：张三'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum(lines,false,true,'auto'),false);
+});
+test('NCM instrumental flag is read as metadata, not inferred from an arbitrary title',()=>{
+ assert.equal(C.isNcmInstrumental({mark:131072}),true);
+ assert.equal(C.isNcmInstrumental({mark:131072+262144}),true);
+ assert.equal(C.isNcmInstrumental({mark:131071}),false);
+ assert.equal(C.isNcmInstrumental({mark:0}),false);
+ assert.equal(C.isNcmInstrumental({nolyric:true}),true);
+ assert.equal(C.isNcmInstrumental({songName:'Black Sails'}),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'ordinary lyric'}],false,false,'auto',true),true);
+ assert.equal(C.shouldDisplaySpectrum([{text:'ordinary lyric'}],false,false,'lyrics-only',true),false);
+});
+test('TaskbarLyrics 0.90/0.70/0.60 with line opacities keeps translation between main and next',()=>{
+ const p=C.lyricPalette('light',false);
+ const main=0.9*0.98, translation=0.7, secondary=0.6*0.72;
+ assert.ok(main>translation && translation>secondary);
+ assert.equal(p.translation,'rgba(255,255,255,0.7)');
+});
+
+test('playback hotfix maintains TBL soft unplayed text but makes performed words fully bright',()=>{
+ const white=C.lyricPalette('light',false), dark=C.lyricPalette('dark',false);
+ assert.equal(white.secondary,'rgba(255,255,255,0.6)');
+ assert.equal(white.translation,'rgba(255,255,255,0.7)');
+ assert.equal(white.primary,'rgba(255,255,255,0.9)');
+ assert.equal(white.scan,'rgba(255,255,255,1)');
+ assert.equal(dark.scan,'rgba(17,24,39,1)');
+});
+test('bar width remains independent of spacing, persists, and clamps to valid values',()=>{
+ assert.equal(C.normalizeSettings({}).spectrumBarWidth,3);
+ assert.equal(C.normalizeSettings({spectrumBarWidth:7,spectrumGap:2}).spectrumBarWidth,7);
+ assert.equal(C.normalizeSettings({spectrumBarWidth:7,spectrumGap:2}).spectrumGap,2);
+ assert.equal(C.normalizeSettings({spectrumBarWidth:-10}).spectrumBarWidth,1);
+ assert.equal(C.normalizeSettings({spectrumBarWidth:99}).spectrumBarWidth,12);
+ assert.equal(C.normalizeSettings({spectrumBarWidth:'not-a-number'}).spectrumBarWidth,3);
+});
+test('chorus glow is opt-in and settings are bounded without changing existing preferences',()=>{
+ const old=C.normalizeSettings({fontSize:34,enableWordScan:true});
+ assert.equal(old.chorusGlowEnabled,false);
+ assert.equal(old.chorusGlowIntensity,30);
+ assert.equal(old.fontSize,34);
+ assert.equal(C.normalizeSettings({chorusGlowEnabled:true,chorusGlowIntensity:-10}).chorusGlowIntensity,0);
+ assert.equal(C.normalizeSettings({chorusGlowIntensity:200,chorusGlowStyle:'invalid'}).chorusGlowIntensity,100);
+ assert.equal(C.normalizeSettings({chorusGlowStyle:'bright'}).chorusGlowStyle,'standard');
+});
+test('chorus requires a trustworthy bounded start and end',()=>{
+ const intervals=C.normalizeChorusIntervals([
+   {startMs:152916,endMs:178690},
+   {startMs:180000,endMs:180000},
+   {startMs:200000,endMs:280000},
+   {startMs:-100,endMs:10000},
+   {startMs:210000,endMs:400000}
+ ],240000);
+ assert.deepEqual(intervals,[{startMs:152916,endMs:178690}]);
+ assert.equal(C.isChorusActive(intervals,152915),false);
+ assert.equal(C.isChorusActive(intervals,152916),true);
+ assert.equal(C.isChorusActive(intervals,178690),false);
+ assert.deepEqual(C.normalizeChorusIntervals([{startMs:30000}],240000),[]);
+ assert.deepEqual(C.normalizeChorusIntervals([{startMs:1000,endMs:2000}],0),[]);
+});

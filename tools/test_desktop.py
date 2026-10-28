@@ -10,12 +10,12 @@ async def run():
   page.on('pageerror', lambda ex:errors.append(str(ex)))
   await page.set_content(html.read_text(encoding='utf8'))
   await page.wait_for_timeout(900)
-  assert await page.locator('#toolbar button').count()==5
-  assert await page.locator('.fc-word').count()>0, 'YRC overlay missing'
-  clip=await page.locator('.fc-word').first.evaluate('(el)=>el.style.getPropertyValue("--fc-word-progress")')
+  assert await page.locator('#toolbar button').count()==8
+  assert await page.locator('.fc-text-highlight').count()>0, 'text mask missing'
+  clip=await page.locator('.fc-text-box').first.evaluate('(el)=>el.style.getPropertyValue("--fc-progress")')
   print('word progress:',clip)
-  await page.locator('#root').hover(force=True)
-  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.0-desktop-preview.png',omit_background=True)
+  await page.evaluate("document.querySelector('#root').classList.add('controls-open')")
+  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.15-desktop-preview.png',omit_background=True)
   assert not errors, errors
   print('page errors:',errors)
   await browser.close()

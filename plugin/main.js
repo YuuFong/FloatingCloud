@@ -5,6 +5,23 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
+  const VERSION = '0.4.37';
+  const DIAG_KEY = 'diagnostic-mode-v1';
+  const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
+    'timeline-read-only','lyrics-only','http-only'];
+  const selectedMode = plugin.getConfig(DIAG_KEY, 'full');
+  const diagMode = DIAG_MODES.includes(selectedMode) ? selectedMode : 'full';
+  const diag = {
+    preview: !['no-preview','events-only','inert','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    spectrum: diagMode !== 'no-spectrum',
+    window: !['no-window','events-only','inert','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    nativeLyrics: !['no-native-lyrics','http-only'].includes(diagMode),
+    trackTimeline: !['events-only','lyrics-only','http-only'].includes(diagMode),
+    lyricRequests: !['events-only','timeline-read-only'].includes(diagMode),
+    events: diagMode !== 'inert'
+  };
+  console.info('[FloatingCloud diagnostic] mode=' + diagMode);
+  const NcmPath = window.FloatingCloudNcmPath;
   const KEY = 'appearance-v2' /* keep existing users’ saved settings */;
   const DEMO = Core.parseNcmLyrics({
     yrc: { lyric: [
@@ -26,32 +43,49 @@
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch (e) { console.warn('[FloatingCloud] view update', e); } });
   const setSettings = (patch) => {
+    const glowOnly=Object.keys(patch).length>0 && Object.keys(patch).every(key=>
+      ['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'].includes(key));
+    const previewOnly=Object.keys(patch).length>0 && Object.keys(patch).every(key=>key==='enabled');
+    const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders,
+      previousGlow=Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0);
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
-    try { desktop?.applySettings(settings); } catch (e) { console.warn(e); }
+    try { if(!previewOnly)desktop?.applySettings(settings,glowOnly); } catch (e) { console.warn(e); }
+    if(previousMode!==settings.lyricsMode ||
+       previousFolders!==settings.localLyricsFolders) live?.refresh();
+    else if(previousGlow!==Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0) &&
+            settings.chorusGlowEnabled && settings.chorusGlowIntensity>0)
+      live?.requestChorus();
   };
 
   class LiveLyrics {
     constructor() {
       this.api = null; this.trackKey = ''; this.title = '';
-      this.lines = []; this.kind = ''; this.error = ''; this.busy = false;
+      this.lines = []; this.kind = ''; this.error = ''; this.busy = false; this.pureMusic=false;
+      this.trackInstrumental=false;this.instrumentalHint='';
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
+      this.chorusIntervals = [];
+      this.chorusLoaded=false;this.chorusPending=false;this.chorusBusy=false;
+      this.generation = 0; this.pendingSong = null; this.songTask = null;
+      this.forceNextLookup=false;
     }
     init() {
       const attach = () => {
         const api = window.InfLinkApi;
         if (api && typeof api.getCurrentSong === 'function' && typeof api.addEventListener === 'function') {
           clearInterval(this.retry); this.retry = null; this.api = api;
-          this.attach('songChange', e => this.setTrack(e?.detail ?? api.getCurrentSong()));
+          // InfLink dispatches on the NCM renderer. Never call back into NCM or
+          // the native bridge while its song-change dispatch is on the stack.
+          this.attach('songChange', e => this.queueTrack(e?.detail));
           this.attach('timelineUpdate', e => {
-            const p = e?.detail ?? api.getTimeline();
-            if (Number.isFinite(p?.currentTime)) this.clock.anchor(p.currentTime, api.getPlaybackStatus() === 'Playing');
+            const p = e?.detail;
+            if (Number.isFinite(p?.currentTime)) this.clock.anchor(p.currentTime);
           });
-          this.attach('playStateChange', e => this.clock.setPlaying((e?.detail ?? api.getPlaybackStatus()) === 'Playing'));
+          this.attach('playStateChange', e => { if (e?.detail != null) this.clock.setPlaying(e.detail === 'Playing'); });
           this.clock.setPlaying(api.getPlaybackStatus() === 'Playing');
           const timeline = api.getTimeline();
           if (timeline && Number.isFinite(timeline.currentTime)) this.clock.anchor(timeline.currentTime);
@@ -60,11 +94,7 @@
         }
         if (++this.attempts >= 24) {
           clearInterval(this.retry); this.retry = null;
-          // Minimal metadata-only fallback: not a reliable lyric timeline.
-          try {
-            const song = window.betterncm?.ncm?.getPlayingSong?.();
-            if (song?.id) this.setTrack({ ncmId: song.id, songName: song.name ?? '', authorName: '' });
-          } catch (_) { /* unavailable */ }
+          this.error = 'InfLink-rs 不可用：无法读取可靠的播放状态';
           notify();
         }
       };
@@ -75,52 +105,204 @@
       this.api.addEventListener(name, fn);
       this.listeners.push([name, fn]);
     }
+    queueTrack(song) {
+      this.pendingSong = song;
+      if (this.songTask) return;
+      this.songTask = setTimeout(() => {
+        this.songTask = null;
+        const next = this.pendingSong; this.pendingSong = null;
+        this.setTrack(next ?? this.api?.getCurrentSong?.());
+      }, 0);
+    }
     async setTrack(song) {
+      if (!song || typeof song !== 'object') return;
       const id = Number(song?.ncmId ?? song?.id);
-      const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}`;
+      const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}:${String(song?.songName || song?.name || '')}:${String(song?.authorName || song?.artist || '')}`;
       if (key === this.trackKey) return;
+      const generation = ++this.generation;
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
-      this.lines = []; this.kind = ''; this.busy = false; this.error = '';
+      this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
+      this.durationMs = Number(song?.duration ?? 0);
+      // The isolated NCM getPlayingSong() call hangs the host renderer on
+      // playlist selection. Use the InfLink event payload and lyric result.
+      this.trackInstrumental=Core.isNcmInstrumental(song);
+      this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
+      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
+      this.chorusIntervals=[];
+      this.chorusLoaded=false;this.chorusPending=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
-      try {
+      try { if (diag.trackTimeline) {
+        if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] before track timeline');
         const current = this.api?.getTimeline();
+        if (!(this.durationMs>0) && Number.isFinite(current?.totalTime))
+          this.durationMs=current.totalTime;
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
-      } catch (_) { /* ignore */ }
-      if (!(id > 0)) { this.error = song?.trackId ? '本地歌曲暂不支持在线歌词直连' : '暂无正在播放的歌曲'; notify(); return; }
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind; notify(); return; }
+        if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] after track timeline');
+      }} catch (_) { /* ignore */ }
+      if (!diag.lyricRequests) { notify(); return; }
+      if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic);this.chorusIntervals=saved.chorusIntervals||[];this.chorusLoaded=Boolean(saved.chorusLoaded);notify();if(settings.chorusGlowEnabled&&!this.chorusLoaded)this.requestChorus();return; }
       this.busy = true; notify();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const timer = setTimeout(() => ctrl.abort(), 15500);
+      let result=null, lastError='', autoOffline=false, helperResponded=false, chorusIntervals=[];
       try {
-        // Uses the same NCM lyric endpoint demonstrated by AMLL's BetterNCM adapter.
-        const base = (typeof window.APP_CONF?.domain === 'string' && /^https:\/\//.test(window.APP_CONF.domain))
-          ? window.APP_CONF.domain : 'https://music.163.com';
-        const url = `${base}/api/song/lyric/v1?tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&cp=false&id=${encodeURIComponent(id)}`;
-        const resp = await fetch(url, { signal: ctrl.signal });
-        if (!resp.ok) throw Error(`歌词接口 HTTP ${resp.status}`);
-        const data = await resp.json();
-        const result = Core.parseNcmLyrics(data);
-        if (this.trackKey !== key || ctrl.signal.aborted) return;
-        this.lines = result.lines; this.kind = result.kind;
-        if (!result.lines.length) this.error = '没有找到同步歌词';
-        this.cache.set(key, result);
-        if (this.cache.size > 30) this.cache.delete(this.cache.keys().next().value);
-      } catch (e) {
-        if (this.trackKey === key) this.error = ctrl.signal.aborted ? '歌词请求超时或切歌取消' : `歌词获取失败：${String(e.message || e)}`;
+        // TBL's coordinator handles Netease IDs, source routing, scoring and caches.
+        // The .NET helper is self-contained and launched by native.dll in a
+        // background worker. Netease song metadata is used for matching only.
+        const nativeApi=window.betterncm_native?.native_plugin;
+        if(diag.nativeLyrics && nativeApi?.call) {
+          try {
+            const offlineHint=(typeof navigator !== 'undefined' && navigator.onLine===false);
+            const manualFolders=settings.localLyricsFolders.split(/[;\r\n]+/).map(p=>p.trim()).filter(Boolean);
+            // Client's own download directory first; manual roots are fallback.
+            // No client configuration files are modified or uploaded.
+            const ncmRoot=NcmPath?.getDownloadDir(window)||'';
+            const localFolders=[...new Set([ncmRoot,...manualFolders].filter(Boolean))].slice(0,12);
+            const request={
+              TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
+              Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint,
+              NcmId:Number.isSafeInteger(id)&&id>0?id:0,
+              ChorusEnabled:false,ForceRefresh:this.forceNextLookup
+            };
+            this.forceNextLookup=false;
+            if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
+              const limit=performance.now()+12500;
+              while(!ctrl.signal.aborted && performance.now()<limit) {
+                await new Promise(resolve=>setTimeout(resolve,200));
+                if(this.generation!==generation || ctrl.signal.aborted)return;
+                const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
+                if(!raw)continue;
+                let response;
+                try {response=JSON.parse(raw);}catch(_){break;}
+                if(response.trackKey!==key)continue;
+                helperResponded=true;
+                chorusIntervals=Core.normalizeChorusIntervals(response.chorus,this.durationMs);
+                this.chorusLoaded=Boolean(request.ChorusEnabled);
+                if(!response.pureMusic && chorusIntervals.length) {
+                  this.chorusIntervals=chorusIntervals;
+                  notify(); // publish timed glow before any LRCLIB fallback finishes
+                }
+                if(response.error==='offline-no-local-lyrics')autoOffline=true;
+                if(response.pureMusic) {this.pureMusic=true;break;}
+                if(Array.isArray(response.lines) && response.lines.length) {
+                  const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
+                    .map(l=>({
+                      time:l.time,duration:Number(l.duration||0),text:l.text,translation:String(l.translation||''),
+                      words:Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
+                        .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[],
+                      kind:l.kind||'lrc'
+                    })).sort((a,b)=>a.time-b.time);
+                  if(lines.length){result={lines,kind:response.kind||'lrc',provider:response.provider||'TBL'};break;}
+                }
+                break;
+              }
+            }
+          }catch(e) {lastError=String(e.message||e);}
+        }
+        // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
+        // No invented word times: a strict song/artist/duration match is required.
+        // The renderer's LRCLIB fallback is only legal in an ONLINE mode.
+        // No HTTP request whatsoever is issued in local-only/offline state.
+        const allowHttpFallback=!helperResponded && !autoOffline && settings.lyricsMode!=='local-only' &&
+          !(typeof navigator !== 'undefined' && navigator.onLine===false);
+        if (allowHttpFallback && !result && !this.pureMusic &&
+            this.title && this.artist && !ctrl.signal.aborted) {
+          const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
+          if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
+          const response=await fetch('https://lrclib.net/api/get?'+args,{
+            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
+          if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
+          const meta={title:this.title,artist:this.artist,durationMs:this.durationMs};
+          if(response.status===200) {
+            const record=await response.json();
+            if(record.instrumental) this.pureMusic=true;
+            result=Core.parseLrclibRecord(record,meta);
+          }
+          else if(response.status===404) {
+            const searchUrl='https://lrclib.net/api/search?'+new URLSearchParams({
+              track_name:this.title,artist_name:this.artist});
+            const searchResp=await fetch(searchUrl,{signal:ctrl.signal,headers:{
+              'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
+            if(searchResp.ok) {
+              const candidates=await searchResp.json();
+              if(Array.isArray(candidates)) {
+                // Never accept title-only matches; prefer word-synced verified records.
+                const matches=candidates.slice(0,25)
+                  .map(r=>Core.parseLrclibRecord(r,meta)).filter(Boolean);
+                matches.sort((a,b)=>Number(b.kind==='lyricsfile')-Number(a.kind==='lyricsfile'));
+                result=matches[0]||null;
+              }
+            } else if(searchResp.status!==404)throw Error('LRCLIB search HTTP '+searchResp.status);
+          } else throw Error('LRCLIB HTTP '+response.status);
+        }
+        if(this.generation!==generation || ctrl.signal.aborted) return;
+        this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
+        if(result?.lines?.length) {
+          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
+          this.cache.set(key,{...result,chorusIntervals:this.chorusIntervals,chorusLoaded:this.chorusLoaded});
+          if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
+        } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
+      } catch(e) {
+        if(this.generation===generation) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
         clearTimeout(timer);
-        if (this.trackKey === key) { this.busy = false; notify(); }
+        if(this.generation===generation) {
+          this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
+          this.busy=false;notify();
+          if(this.chorusPending || (settings.chorusGlowEnabled && this.lines.length)) {
+            this.chorusPending=false;this.requestChorus();
+          }
+        }
       }
+    }
+    async requestChorus() {
+      if(!settings.chorusGlowEnabled || settings.chorusGlowIntensity<=0 ||
+         settings.lyricsMode==='local-only' || this.trackInstrumental || this.pureMusic ||
+         this.chorusLoaded || !this.trackKey.startsWith('ncm:') ||
+         !(this.durationMs>0) || !diag.nativeLyrics)return;
+      if(this.busy || this.chorusBusy){this.chorusPending=true;return;}
+      const nativeApi=window.betterncm_native?.native_plugin;
+      if(typeof nativeApi?.call!=='function')return;
+      const key=this.trackKey,generation=this.generation;
+      const id=Number(key.split(':')[1]);
+      if(!Number.isSafeInteger(id)||id<=0)return;
+      this.chorusBusy=true;
+      try {
+        const request={TrackKey:key,Title:this.title,Artist:this.artist,Album:'',
+          DurationMs:this.durationMs,Mode:settings.lyricsMode,LocalFolders:[],
+          OfflineHint:typeof navigator!=='undefined'&&navigator.onLine===false,
+          NcmId:id,ChorusEnabled:true,ChorusOnly:true};
+        if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])!=='started')return;
+        const limit=performance.now()+4500;
+        while(performance.now()<limit && this.generation===generation) {
+          await new Promise(resolve=>setTimeout(resolve,150));
+          if(this.generation!==generation)return;
+          const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
+          if(!raw)continue;
+          const response=JSON.parse(raw);
+          if(response.trackKey!==key)continue;
+          this.chorusIntervals=Core.normalizeChorusIntervals(response.chorus,this.durationMs);
+          this.chorusLoaded=true;
+          const cached=this.cache.get(key);
+          if(cached)this.cache.set(key,{...cached,chorusIntervals:this.chorusIntervals,chorusLoaded:true});
+          notify();return;
+        }
+      }catch(e){console.warn('[FloatingCloud] chorus lookup',e);}
+      finally {this.chorusBusy=false;if(this.chorusPending){this.chorusPending=false;this.requestChorus();}}
     }
     refresh() {
       const song = this.api?.getCurrentSong?.();
       if (!song) { this.error = '没有可刷新的当前歌曲'; notify(); return; }
       this.cache.delete(this.trackKey);
+      this.forceNextLookup=true;
       this.trackKey = ''; // force new request without requiring a song change
       this.setTrack(song);
     }
     destroy() {
+      ++this.generation; clearTimeout(this.songTask); this.songTask=null;
+      this.chorusPending=false;
       clearInterval(this.retry); this.cancel?.abort();
       for (const [name, fn] of this.listeners) this.api?.removeEventListener(name, fn);
       this.listeners = [];
@@ -132,8 +314,8 @@
   class DesktopBridge {
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
-      this.timer = null; this.sentLines = null; this.sentTrack = null;
-      this.lastFrameSentAt = 0; this.lastFrameTrack = null; this.inTick = false;
+      this.timer = null; this.sentLines = null; this.sentTrack = null;this.sentChorus=null;this.spectrumActive=false;this.sentPureMusic=null;this.sentSearching=null;this.spectrumCapture=false;
+      this.widthAdjusting=false;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -147,6 +329,27 @@
       }
     }
     probe() { return this.pingOk = this.call('ping') === 'native-loaded'; }
+    // BetterNCM persists plugin config across NCM restart; no filesystem permissions.
+    // The signed coordinates also support a secondary display placed left/up.
+    parsePosition(value) {
+      if(typeof value !== 'string')return null;
+      const parts=value.split(',');
+      if(parts.length!==2)return null;
+      const x=Number(parts[0]),y=Number(parts[1]);
+      if(!Number.isInteger(x)||!Number.isInteger(y) ||
+         Math.abs(x)>100000||Math.abs(y)>100000)return null;
+      return {x,y};
+    }
+    // Only a completed user drag may update the persisted placement.
+    // Reading GetWindowRect on unload also captures transient HWND/DPI/clamp
+    // positions and can cause a downward drift on every client restart.
+    rememberPosition(value) {
+      const position=this.parsePosition(value);
+      if(!position)return;
+      const saved=plugin.getConfig('desktop-position-v1',null);
+      if(saved?.x===position.x && saved?.y===position.y)return;
+      plugin.setConfig('desktop-position-v1',position);
+    }
     status() {
       if (!this.pingOk && !this.probe()) return 'native.dll 未加载：请安装经过 Windows 构建的 .plugin';
       const result = this.call('status');
@@ -155,65 +358,105 @@
     }
     enable() {
       if (!this.probe()) {this.message='native.dll 未加载';return false;}
+      // Set dimensions BEFORE HWND creation: the saved x coordinate belongs
+      // to the saved window width, not to a temporary 740px default.
+      const pitch=Math.ceil(settings.fontSize*1.35+settings.lineGap);
+      this.call('setInitialSize',[Math.round(settings.width)+','+(92+settings.lineGap+pitch*2+8)]);
+      const saved=plugin.getConfig('desktop-position-v1',null);
+      if(saved && Number.isInteger(saved.x) && Number.isInteger(saved.y) &&
+        Math.abs(saved.x)<=100000 && Math.abs(saved.y)<=100000)
+        this.call('setInitialPosition',[saved.x+','+saved.y]);
       if (this.call('open') !== 'started') {this.message='Native 窗口创建失败';return false;}
-      this.enabled = true;this.call('show');
+      this.enabled = true;
       this.applySettings(settings);
+      // No second setPosition after sizing: it used to undo the current
+      // centered resize by jumping to a stale startup coordinate.
       this.call('lock', [String(this.locked)]);
-      this.sentTrack=null;this.sentLines=null;
-      if (!this.timer) this.timer=setInterval(()=>this.tick(),250);
+      this.call('show');
+      this.sentTrack=null;this.sentLines=null;this.sentChorus=null;this.sentPureMusic=null;this.sentSearching=null;
+      if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
       this.message='窗口正在打开';return true;
     }
     disable() {
+      if(this.enabled)this.rememberPosition(this.call('movedPosition'));
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
-      this.call('close');this.message='已关闭桌面浮窗';
+      this.call('spectrumEnabled',['false']);this.spectrumActive=false;this.spectrumCapture=false;this.call('close');this.message='已关闭桌面浮窗';
     }
     unlock() {
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
-      this.call('lock',['false']);this.message='已解锁：拖动上方细条可移动位置';
+      this.call('lock',['false']);this.message='已解锁：按住歌词本身即可拖动';
     }
-    applySettings(s) {
+    applySettings(s,glowOnly=false) {
       if (!this.enabled)return;
-      this.call('settings',[JSON.stringify(s)]);
+      this.call('settings',[JSON.stringify({...s,widthGuide:this.widthAdjusting})]);
+      if(glowOnly)return;
       this.call('width',[String(Math.round(s.width))]);
+      const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
+      this.call('height',[String(92+s.lineGap+pitch*2+8)]);
     }
     tick() {
-      if (!this.enabled || this.inTick)return;
-      this.inTick = true;
-      try { this.tickInternal(); } finally { this.inTick = false; }
-    }
-    tickInternal() {
       if (!this.enabled)return;
       const action = this.call('poll');
+      // A distinct dirty-position channel avoids overwriting playback actions.
+      const moved=this.call('movedPosition');
+      if(moved)this.rememberPosition(moved);
       if (action === 'close') {this.disable();return;}
       if (action === 'lock') {this.locked=true;plugin.setConfig('desktop-locked-v1',true);}
+      if (action === 'unlock') {this.unlock();}
       const api=live?.api;
       if (action === 'previous') api?.previous?.();
       else if (action === 'next') api?.next?.();
+      else if (action === 'seekBack' || action === 'seekForward') {
+        const current=api?.getTimeline?.()?.currentTime;
+        if (Number.isFinite(current) && typeof api?.seekTo === 'function') {
+          const dest=Math.max(0,current+(action==='seekBack'?-500:500));
+          api.seekTo(dest);live?.clock.anchor(dest,api.getPlaybackStatus()==='Playing');
+        }
+      } else if (action === 'fontSmaller' || action === 'fontLarger') {
+        setSettings({fontSize:Math.min(64,Math.max(14,settings.fontSize+(action==='fontLarger'?1:-1)))});
+      }
+      else if (action === 'refreshLyrics') live?.refresh();
       else if (action === 'toggle') {
         if (api?.getPlaybackStatus?.() === 'Playing') api.pause?.();
         else api?.play?.();
       }
       const song=live;
-      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack) {
-        this.sentLines=song?.lines;
-        this.sentTrack=song?.trackKey;
-        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[]})]);
+      // Searching and no lyrics are different states. No spectrum until
+      // providers finish; do not gate the spectrum UI on playback status.
+      const searching=Boolean(song?.trackKey && song?.busy);
+      // TBL helpers can return explicit IsPureMusic or only a timestamped
+      // "纯音乐，请欣赏" placeholder. Respect both; manual mode is an escape
+      // hatch when a third-party source assigns bogus lyrics to an instrumental.
+      const shouldSpectrum=diag.spectrum && Boolean(song?.trackKey &&
+        Core.shouldDisplaySpectrum(song?.lines,song?.pureMusic,searching,settings.spectrumMode,
+          song?.trackInstrumental));
+      const shouldCapture=diag.spectrum && shouldSpectrum && Boolean(song?.clock.isPlaying());
+      if(shouldCapture!==this.spectrumCapture) {
+        this.spectrumCapture=shouldCapture;
+        this.call('spectrumEnabled',[String(shouldCapture)]);
       }
-      // Send position at most four times per second; a new track always gets a fresh frame.
-      const now = performance.now();
-      if (this.lastFrameTrack !== song?.trackKey || now - this.lastFrameSentAt >= 250) {
-        this.lastFrameTrack = song?.trackKey;
-        this.lastFrameSentAt = now;
-        this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
+      this.spectrumActive=diag.spectrum && shouldSpectrum;
+      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack ||
+          song?.chorusIntervals!==this.sentChorus ||
+          shouldSpectrum!==this.sentPureMusic || searching!==this.sentSearching) {
+        this.sentLines=song?.lines;this.sentTrack=song?.trackKey;this.sentChorus=song?.chorusIntervals;
+        this.sentPureMusic=shouldSpectrum;this.sentSearching=searching;
+        this.call('lyrics',[JSON.stringify({
+          trackKey:song?.trackKey||'',title:song?.title||'',artist:song?.artist||'',
+          lines:song?.lines||[],pureMusic:shouldSpectrum,searching,
+          chorus:song?.chorusIntervals||[],durationMs:song?.durationMs||0
+        })]);
       }
+      this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
+      if(this.enabled)this.rememberPosition(this.call('movedPosition'));
       clearInterval(this.timer);this.timer=null;
-      this.call('shutdown');
+      this.call('spectrumEnabled',['false']);this.spectrumCapture=false;this.call('shutdown');
     }
   }
 
@@ -227,22 +470,58 @@
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
-  .fc-track{position:absolute;top:16px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
-  .fc-line{height:var(--fc-pitch);display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.22;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color)}
-  .fc-line-primary{font-size:var(--fc-font-size);font-weight:var(--fc-weight);color:var(--fc-color)}
-  .fc-line-secondary{font-size:var(--fc-next-size);font-weight:var(--fc-weight);color:var(--fc-next)}
-  .fc-line-paired .fc-text-box{font-size:var(--fc-font-size)}
-  .fc-line-secondary.fc-line-paired .fc-text-box{font-size:var(--fc-next-size)}
-  .fc-line-paired .fc-subline{font-size:var(--fc-next-size);color:var(--fc-next);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:3px}
-  .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-stage.fc-rolling{clip-path:inset(32px 0 0 0)}
+  .fc-track{position:absolute;top:32px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
+  /* Keep glyphs flat; a shadow on the row is inherited by every scan layer. */
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:visible;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
+  /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
+     60% next × .72. No additional row opacity for translations. */
+  .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-translation{font-size:calc(var(--fc-font-size) - 5px);color:var(--fc-translation);opacity:1;transform:none}
+  .fc-line-translation.fc-translation-placeholder{opacity:.55}
+  .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
+  .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
+  .fc-line-secondary{font-size:calc(var(--fc-font-size) - 5px);color:var(--fc-next);opacity:.72;transform:none}
+  .fc-line-secondary.fc-promoting{font-size:var(--fc-font-size);color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-secondary.fc-incoming{opacity:0}
+  /* Keep the glow's blur inside the clipping box. Negative margins preserve
+     the glyph position; the stage still clips the offscreen rolling rows. */
+  .fc-text-box{position:relative;display:block;max-width:calc(100% - 64px);padding:32px;margin:-32px auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
+     inline spans, so keep FC's base and scan layers as real block boxes. */
+  .fc-text-base{display:block;white-space:nowrap}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base,.fc-line-primary .fc-text-highlight,.fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 0 transparent,0 0 0 transparent;transition:text-shadow 420ms ease-in-out}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
+
+  /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
+     The 90%-alpha played segment is a separate clipped/masked layer.
+     Without scanning enabled, retain the normal 90%-alpha primary color. */
+  .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next)}
+  /* Keep the unplayed glyphs at their next-line color throughout promotion.
+     The clipped progress layer alone becomes bright; otherwise the whole row
+     flashes primary before draw() changes it to the scan-enabled base color. */
+  .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
+  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-feather{display:none;position:absolute;inset:32px;pointer-events:none;white-space:nowrap}
+  /* Keep the played glyphs fully bright; paint only a narrow soft tail past
+     the clip edge. The text paint path avoids animated mask-image on WebView2. */
+  @supports (-webkit-background-clip:text){
+    .fc-text-box.fc-feather-active .fc-text-feather{display:block;color:transparent;-webkit-text-fill-color:transparent;background:linear-gradient(to right,transparent 0,transparent var(--fc-progress,0%),var(--fc-highlight) var(--fc-progress,0%),transparent calc(var(--fc-progress,0%) + 0.12em),transparent 100%);background-clip:text;-webkit-background-clip:text}
+  }
+  .fc-stage:not(.fc-scan-enabled) .fc-text-highlight,.fc-stage:not(.fc-scan-enabled) .fc-text-feather{display:none}
+  /* The word scan uses the same glyph overlay as the line scan. */
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
   .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
-  .fc-stage:not(.fc-no-motion) .fc-text-highlight{transition:clip-path 90ms linear}
-  .fc-stage:not(.fc-no-motion) .fc-word-highlight{transition:clip-path 90ms linear}
-  .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
+  /* rAF drives high-frequency YRC scanning; CSS transitions would restart every frame and lag. */
+  .fc-group-heading{font-size:16px;font-weight:700;margin:0 0 5px;color:#e7efff}
+  .fc-settings-section{margin:16px 0;padding:16px 18px;border:1px solid #3c4960;border-radius:12px;background:rgba(30,40,58,.55)}
+  .fc-section-desc{font-size:12px;line-height:1.55;opacity:.72;margin:0 0 15px}
+  .fc-settings-section .fc-form-grid{margin-top:12px}
+  .fc-advanced{margin:18px 0;padding:12px 16px;border:1px solid #3c4960;border-radius:10px}
+  .fc-advanced summary{cursor:pointer;font-size:13px;font-weight:600}
   .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
   .fc-control select{max-width:100%;text-overflow:ellipsis}
   .fc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:13px 18px}
@@ -261,126 +540,259 @@
     if (text !== undefined) node.textContent = text;
     return node;
   }
+  // Two visually stable lyric rows with an offscreen third row for the incoming line.
+  // Adapted from TaskbarLyrics' separation of roll transitions and progress patches.
   class RollingView {
     constructor(stage) {
       this.stage = stage;
-      this.track = el('div', 'fc-track'); stage.appendChild(this.track);
-      this.rows = [0, 1, 2].map(() => el('div', 'fc-line'));
-      this.rows.forEach(r => this.track.append(r));
-      this.index = null; this.busy = false; this.pending = null;
-      this.timer = null; this.generation = 0; this.lines = [];
-      this.scanRows = [null, null, null]; this.lastPosition = 0;
+      this.track = el('div', 'fc-track'); stage.append(this.track);
+      this.rows = [0, 1, 2, 3].map(() => el('div', 'fc-line'));
+      this.rows.forEach(node => this.track.append(node));
+      this.scanRows = [null, null, null, null];
+      this.lines = []; this.index = null; this.settings = null;
+      this.busy = false; this.pending = null; this.pairMode=false;
+      this.timer = null; this.generation = 0; this.lastPosition = 0;
+      this.presentation = new window.taskbarLyricsPresentation.PresentationCoordinator();
+      this.renderTrackId = 0;
+      this.glowActive = false;
     }
     applySettings(s) {
+      const old=this.settings;
+      const glowKeys=['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'];
+      const glowOnly=old && glowKeys.some(key=>old[key]!==s[key]) &&
+        Object.keys(s).every(key=>glowKeys.includes(key)||old[key]===s[key]);
       this.settings = s;
-      this.paired = Boolean(s.showTranslation && this.lines.some(l => l.translation));
+      this.applyGlowSettings(s);
+      if(glowOnly)return; // preserve live rows and an in-flight roll while editing glow
+      this.pairMode = Boolean(s.showTranslation && this.lines.some(line=>String(line?.translation||'').trim()));
+      // Use fixed row boxes: font difference is only a visual scale.
+      this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
       const v = this.stage.style;
-      const pitch = this.paired
-        ? Math.ceil(s.fontSize * 1.3 + s.nextFontSize * 1.35 + s.lineGap + 10)
-        : Math.ceil(Math.max(s.fontSize * 1.3, s.nextFontSize * 1.45) + s.lineGap);
-      this.pitch = pitch;
-      v.setProperty('--fc-pitch', pitch + 'px'); v.setProperty('--fc-font-size', s.fontSize + 'px');
-      v.setProperty('--fc-next-size', s.nextFontSize + 'px');
+      v.setProperty('--fc-pitch', this.pitch + 'px');
+      v.setProperty('--fc-toolbar-gap',s.lineGap+'px');
+      v.setProperty('--fc-font-size', s.fontSize + 'px');
+      v.setProperty('--fc-secondary-scale',String((s.fontSize-5)/s.fontSize));
+      v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
-      v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
-      v.setProperty('--fc-highlight', s.highlight); v.setProperty('--fc-stroke', s.strokeWidth + 'px');
-      v.setProperty('--fc-stroke-color', s.strokeColor); v.setProperty('--fc-shadow', s.shadow + 'px');
-      v.setProperty('--fc-align', s.align); v.fontFamily = s.font;
-      v.height = (pitch * (this.paired ? 1 : 2) + 16) + 'px';
+      // The lyric window is transparent: the WebView theme says nothing about
+      // the desktop behind it. Keep the automatic foreground bright.
+      const palette=Core.lyricPalette(s.foregroundMode,false);
+      v.setProperty('--fc-color', palette.primary);
+      v.setProperty('--fc-translation', palette.translation);
+      v.setProperty('--fc-next', palette.secondary);
+      v.setProperty('--fc-highlight', palette.scan);
+      // Legacy stroke/shadow settings remain in config for compatibility.
+      v.setProperty('--fc-align', s.align);
+      v.fontFamily = s.font;
+      v.height = (this.pitch * 2 + 32) + 'px'; // top glow gutter; row 3 stays clipped
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
+      this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
       this.cancelTransition();
-      if (this.index !== null) { this.draw(); this.renderScan(0, this.lastPosition, this.scanRows[0]); }
+      if (this.index !== null) {
+        this.draw();
+        this.renderScan(Core.lineProgress(this.lines, this.index, this.lastPosition), this.lastPosition, this.scanRows[0]);
+      }
+    }
+    applyGlowSettings(s) {
+      const v=this.stage.style;
+      const radius={soft:6,standard:9}[s.chorusGlowStyle]||6;
+      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
+        ({soft:.8,standard:1}[s.chorusGlowStyle]||.8));
+      v.setProperty('--fc-glow-rgb',s.foregroundMode==='dark'?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-blur',radius+'px');
+      v.setProperty('--fc-glow-wide',radius*2+'px');
+      v.setProperty('--fc-glow-alpha',String(alpha));
+      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
+      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
+        this.setGlow(false);
     }
     setLines(lines) {
       if (this.lines === lines) return;
-      this.lines = lines || []; this.cancelTransition(); this.index = null;
+      this.setGlow(false);
+      this.lines = Array.isArray(lines) ? lines : [];
+      ++this.renderTrackId;
+      this.cancelTransition(); this.index = null;
       if (this.settings) this.applySettings(this.settings);
     }
     cancelTransition() {
-      this.generation++; clearTimeout(this.timer); this.timer = null;
-      this.busy = false; this.pending = null; this.track.style.transition = 'none';
+      ++this.generation;
+      this.presentation.cancelTransition();
+      clearTimeout(this.timer); this.timer = null;
+      this.busy = false; this.pending = null;
+      this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
+      this.stage.classList.remove('fc-rolling');
+      this.rows.forEach(r=>{r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving');r.style.fontSize='';r.style.transform='';});
+    }
+    renderRow(rowIndex, lineIndex, translation=false) {
+      const r=this.rows[rowIndex],line=this.lines[lineIndex];
+      const primary=rowIndex===0 || (this.pairMode && rowIndex===2);
+      const missingTranslation=translation&&!String(line?.translation||'').trim();
+      r.style.fontSize='';r.style.transform='';
+      r.className='fc-line '+(translation?'fc-line-translation'+(missingTranslation?' fc-translation-placeholder':''):
+        primary?'fc-line-primary':'fc-line-secondary');
+      r.replaceChildren();
+      const box=el('div','fc-text-box');
+      const content=translation
+        ? (missingTranslation?'…':String(line.translation).trim())
+        : String(line?.text|| (rowIndex===0?'暂无歌词':' '));
+      box.append(el('span','fc-text-base',content));
+      if(!translation)box.append(el('span','fc-text-highlight',content),el('span','fc-text-feather',content));
+      const words=line?.words||[];
+      const timed=!translation&&Core.wordScanProgress(line,line?.time??0)!==null;
+      this.scanRows[rowIndex]=translation?null:{mode:timed?'yrc':'lrc',node:box,lineIndex};
+      r.append(box);
     }
     draw() {
-      const i = Math.max(0, this.index ?? 0);
-      this.scanRows = [null, null, null];
-      this.rows.forEach((r, row) => {
-        const line = this.lines[i + row];
-        const primary = row === 0;
-        r.className = 'fc-line ' + (primary ? 'fc-line-primary' : 'fc-line-secondary') +
-          (this.paired ? ' fc-line-paired' : '');
-        r.replaceChildren();
-        const container = el('div', 'fc-text-box');
-        const content = line?.text || (primary ? '暂无歌词' : '');
-        const segments = [];
-        if (line?.words?.length && line.words.map(w => w.text).join('').trim() === content.trim()) {
-          // Actual YRC word timestamps; each token owns an independently clipped overlay.
-          for (const word of line.words) {
-            const wordNode = el('span', 'fc-word');
-            wordNode.append(el('span', 'fc-word-base', word.text));
-            const highlighted = el('span', 'fc-word-highlight', word.text);
-            wordNode.append(highlighted); container.append(wordNode);
-            segments.push({ word, node: wordNode });
-          }
-          this.scanRows[row] = { segments, mode: 'yrc' };
-        } else {
-          container.append(el('span', 'fc-text-base', content));
-          const highlighted = el('span', 'fc-text-highlight', content);
-          container.append(highlighted);
-          this.scanRows[row] = { node: container, mode: 'lrc' };
-        }
-        r.append(container);
-        if (this.paired) r.append(el('div', 'fc-subline', line?.translation || '　'));
-      });
+      const index=Math.max(0,this.index??0);
+      if(this.pairMode) {
+        this.renderRow(0,index);
+        this.renderRow(1,index,true);
+        this.renderRow(2,index+1);
+        this.renderRow(3,index+1,true);
+      } else {
+        for(let row=0;row<4;row++)this.renderRow(row,index+row);
+      }
     }
-    // Like TaskbarLyrics, frequent progress updates do not restart rolling transitions.
     renderScan(progress, timeMs, scan) {
       if (!scan) return;
-      if (scan.mode === 'yrc') {
-        for (const { word, node } of scan.segments) {
-          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 1;
-          node.style.setProperty('--fc-word-progress', `${(value * 100).toFixed(3)}%`);
-        }
-      } else {
-        const value = this.settings.enableWordScan ? progress : 1;
-        scan.node.style.setProperty('--fc-progress', `${(Math.max(0,Math.min(1,value)) * 100).toFixed(3)}%`);
-      }
+      const line=this.lines[scan.lineIndex];
+      const value=this.settings.enableWordScan
+        ? (scan.mode==='yrc' ? (Core.wordScanProgress(line,timeMs) ?? 0) : progress)
+        : 0;
+      const bounded=Math.max(0,Math.min(1,value));
+      scan.node.style.setProperty('--fc-progress',(bounded*100).toFixed(3) + '%');
+      scan.node.classList.toggle('fc-feather-active',bounded>0 && bounded<1);
     }
-    update(index, progress, timeMs) {
-      if (!this.settings?.enabled) { this.stage.style.opacity = '.28'; return; }
-      this.stage.style.opacity = '1'; this.lastPosition = timeMs;
-      // Before first timestamp do not highlight upcoming lyrics.
-      if (index < 0) { index = 0; progress = 0; }
-      if (this.index === null) { this.index = index; this.draw(); }
+    setGlow(active) {
+      if(this.glowActive===active)return;
+      this.glowActive=active;
+      this.stage.classList.toggle('fc-chorus-glow',active);
+    }
+    promote(nextIndex, ticket) {
+      if (ticket !== this.generation) return;
+      clearTimeout(this.timer); this.timer = null;
+      this.track.classList.add('fc-no-anim');
+      this.stage.classList.remove('fc-rolling');
+      this.track.style.transition='none';
+      this.index=nextIndex;
+      this.track.style.transform='translate3d(0,0,0)';
+      // Reuse the glyphs already visible during the roll. Rebuilding every
+      // row here forced two layouts and briefly paused the incoming line.
+      const step=this.pairMode?2:1;
+      this.rows=[...this.rows.slice(step),...this.rows.slice(0,step)];
+      this.scanRows=[...this.scanRows.slice(step),...this.scanRows.slice(0,step)];
+      this.track.replaceChildren(...this.rows);
+      if(this.pairMode){
+        this.rows[0].className='fc-line fc-line-primary';
+        this.rows[1].className='fc-line fc-line-translation'+
+          (String(this.lines[nextIndex]?.translation||'').trim()?'':' fc-translation-placeholder');
+        this.renderRow(2,nextIndex+1);
+        this.renderRow(3,nextIndex+1,true);
+      }else{
+        this.rows[0].className='fc-line fc-line-primary';
+        this.rows[0].style.fontSize='';this.rows[0].style.transform='';
+        this.rows[1].className='fc-line fc-line-secondary';
+        this.rows[2].className='fc-line fc-line-secondary';
+        this.renderRow(3,nextIndex+3);
+      }
+      this.renderScan(Core.lineProgress(this.lines,nextIndex,this.lastPosition),
+        this.lastPosition,this.scanRows[0]);
+      void this.track.offsetHeight;
+      this.track.classList.remove('fc-no-anim');
+      this.busy=false;
+      const pending=this.pending;this.pending=null;
+      if(pending)this.update(pending.index,pending.progress,pending.timeMs);
+    }
+    frameAt(index, progress, timeMs) {
+      const safe=Math.max(0,index);
+      return {
+        scene:'lyrics',layout:this.pairMode?'translationPair':'single',
+        trackId:String(this.renderTrackId),
+        currentLineIndex:safe,
+        current:this.lines[safe]?.text||'',
+        next:this.lines[safe+1]?.text||'',
+        currentTranslation:this.pairMode?this.lines[safe]?.translation||'':'',
+        nextTranslation:this.pairMode?this.lines[safe+1]?.translation||'':'',
+        progress,
+        wordScanProgress:Core.wordScanProgress(this.lines[safe],timeMs),
+        isPlaying:true
+      };
+    }
+    update(index, progress, timeMs, chorusActive=false) {
+      this.setGlow(Boolean(chorusActive && this.settings?.chorusGlowEnabled &&
+        this.settings?.enableWordScan && this.settings?.chorusGlowIntensity>0));
+      this.stage.style.opacity='1'; this.lastPosition=timeMs;
+      if (index<0) {index=0;progress=0;}
+      const target=this.frameAt(index,progress,timeMs);
+      if (this.index === null) {
+        this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
       if (this.busy) {
-        this.pending = { index, progress, timeMs };
-        this.renderScan(progress, timeMs, this.scanRows[1]);
+        this.pending={index,progress,timeMs};
+        if(index===this.index+1) this.renderScan(progress,timeMs,this.scanRows[this.pairMode?2:1]);
         return;
       }
-      if (index === this.index) { this.renderScan(progress, timeMs, this.scanRows[0]); return; }
-      if (index !== this.index + 1 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        this.index = index; this.draw(); this.renderScan(progress, timeMs, this.scanRows[0]); return;
+      const reduced=Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+      const plan=this.presentation.plan(target,{reducedMotion:reduced});
+      if (index===this.index || plan.kind==='progressPatch') {
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
       }
-      this.busy = true;
-      const ticket = ++this.generation;
-      const duration = (this.paired ? 760 : 560) / this.settings.animationSpeed;
-      this.renderScan(progress, timeMs, this.scanRows[1]);
-      this.track.style.transition = `transform ${duration}ms cubic-bezier(0.22,0.72,0.24,1)`;
-      requestAnimationFrame(() => {
-        if (ticket === this.generation) this.track.style.transform = `translate3d(0,-${this.pitch}px,0)`;
+      if (index!==this.index+1 || reduced || !['singleRoll','translationPairRoll'].includes(plan.kind)) {
+        this.cancelTransition();this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
+      this.busy=true;
+      const ticket=++this.generation;
+      const duration=Math.min(plan.durationMs,300)/this.settings.animationSpeed;
+      this.renderScan(progress,timeMs,this.scanRows[this.pairMode?2:1]);
+      // TBL's coordinator owns the transitionend listener, rAF and fallback.
+      // A completed row becomes the current row without rebuilding its glyphs.
+      this.presentation.beginTransition(plan,{
+        start: ctx => {
+          this.stage.classList.add('fc-rolling');
+          this.track.style.transition='none';
+          this.track.style.transform='translate3d(0,0,0)';
+          this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
+          if(this.pairMode)this.rows[1].classList.add('fc-pair-leaving');
+          else {
+            // TBL measures the next row at its smaller real font size, then
+            // switches to primary metrics before animating only the scale.
+            this.rows[1].style.fontSize='var(--fc-font-size)';
+            this.rows[1].style.transform='scale(var(--fc-secondary-scale))';
+          }
+          // Incoming second line is visible through the moving viewport,
+          // exactly as in TBL; hiding it and revealing it only at the end
+          // caused the next-line flash.
+          this.rows[this.pairMode?3:2].classList.remove('fc-incoming');
+          // Commit the starting geometry before starting the transform.
+          void this.track.offsetHeight;
+          this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
+          const finish=()=>{if(ctx.isCurrent())ctx.finish();};
+          ctx.listenTransitionEnd(this.track,e=>{
+            if(e.target===this.track && e.propertyName==='transform')finish();
+          });
+          ctx.scheduleFallback(finish,duration+90);
+          ctx.requestFrame(()=>{
+            if(ctx.isCurrent() && ticket===this.generation){
+              if(!this.pairMode){this.rows[1].classList.add('fc-promoting');this.rows[1].style.transform='';}
+              this.track.style.transform='translate3d(0,-'+(this.pairMode?this.pitch*2:this.pitch)+'px,0)';
+            }
+          });
+        },
+        complete:()=>{
+          if(ticket!==this.generation)return;
+          // Commit the completed TBL presentation frame *before* replaying the
+          // latest queued update, or a fast consecutive line change can snap.
+          this.presentation.setCurrentFrame(target);
+          this.promote(index,ticket);
+        }
       });
-      this.timer = setTimeout(() => {
-        if (ticket !== this.generation) return;
-        this.index = index;
-        this.track.style.transition = 'none';
-        this.track.style.transform = 'translate3d(0,0,0)';
-        this.draw(); this.busy = false;
-        const queued = this.pending; this.pending = null;
-        const target = queued ?? { index, progress, timeMs };
-        if (target.index === this.index) this.renderScan(target.progress, target.timeMs, this.scanRows[0]);
-        else this.update(target.index, target.progress, target.timeMs);
-      }, duration + 28);
     }
     destroy() { this.cancelTransition(); this.stage.replaceChildren(); }
   }
@@ -388,7 +800,26 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.0（桌面浮窗实验版）'));
+    panel.append(el('h2', '', `FloatingCloud · 歌词显示 v${VERSION}`));
+    const advanced=el('details','fc-advanced');
+    advanced.append(el('summary','','诊断与兼容选项'));
+    const diagLabel=el('label','fc-control');
+    diagLabel.append(el('span','','诊断模式（修改后重启网易云生效）'));
+    const diagSelect=el('select');
+    for(const [value,label] of [
+      ['full','完整功能'],['no-preview','仅关闭设置页预览动画'],
+      ['no-spectrum','仅关闭频谱采集'],['no-window','仅关闭桌面窗口通信'],
+      ['no-native-lyrics','仅关闭 Native 歌词查询'],
+      ['events-only','仅保留播放事件监听和基础曲目信息'],
+      ['timeline-read-only','事件 + 仅读 InfLink 曲目时间轴'],
+      ['lyrics-only','事件 + 仅歌词请求（不读网易云曲目状态、不启窗口）'],
+      ['http-only','事件 + 仅在线歌词请求（不调用 Native、不启窗口）'],
+      ['inert','仅加载插件，不启动播放监听、窗口或预览']
+    ]) { const option=el('option','',label);option.value=value;diagSelect.append(option); }
+    diagSelect.value=diagMode;
+    diagSelect.addEventListener('change',()=>plugin.setConfig(DIAG_KEY,diagSelect.value));
+    diagLabel.append(diagSelect);advanced.append(diagLabel);
+    advanced.append(el('p','fc-hint','当前生效：'+diagMode+'。切换后完整退出并重启网易云。'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -408,7 +839,22 @@
     unlockButton.addEventListener('click',()=>{desktop?.unlock();updateDesktopStatus();});
     function updateDesktopStatus(){
       desktopToggle.textContent=desktop?.enabled?'关闭桌面浮窗':'打开桌面浮窗';
-      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+(desktop?.locked?' · 已锁定':' · 未锁定');
+      const stored=plugin.getConfig('desktop-position-v1',null);
+      const saved=Number.isInteger(stored?.x)&&Number.isInteger(stored?.y)
+        ? stored.x+','+stored.y:'未存档';
+      const actual=desktop?.enabled ? (desktop.call('getPosition')||'不可用') : '未显示';
+      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+
+        (desktop?.locked?' · 已锁定':' · 未锁定')+
+        ' · 位置存档 '+saved+' · 当前窗口 '+actual+
+        ' · 频谱 '+(desktop?.spectrumActive?'显示中':'未切换')+
+        ' · 音频采集 '+(desktop?.spectrumCapture?'已请求':'未请求')+
+        ' / '+(desktop?.spectrumCapture
+          ? (desktop.call('spectrumStatus')==='available'?'设备已就绪':'音频设备尚未就绪')
+          : '待命')+
+        ' · 歌词 '+(live?.lines?.length||0)+'行'+
+        (live?.pureMusic?'（歌词源纯音乐）':'')+
+        (live?.trackInstrumental?'（网易云纯音乐标记）':'')+
+        (Core.isInstrumentalRecord(live?.lines)?'（占位词+制作信息）':'');
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
     demoWrap.append(tools, desktopStatus); panel.append(demoWrap);
@@ -418,21 +864,50 @@
       updateDesktopStatus();
     },1100);
 
-    panel.append(el('h3', 'fc-group-heading', '文字与动画'));
-    const grid = el('div', 'fc-form-grid'); panel.append(grid);
     const inputs = new Map();
     const configs = [
+      ['__section','歌词外观','字体、颜色和桌面浮窗的基本布局'],
       ['enabled','启用预览','checkbox'], ['font','字体','select',Core.FONT_OPTIONS],
-      ['fontWeight','字体粗细（参考 TaskbarLyrics）','select',Core.WEIGHT_OPTIONS],
-      ['fontSize','主行字号','range',14,64,1],['nextFontSize','副行字号','range',12,56,1],
-      ['color','文字颜色','color'],['nextColor','副行颜色','color'],['highlight','扫描高亮颜色','color'],
-      ['strokeWidth','描边宽度','range',0,5,.2],['strokeColor','描边颜色','color'],
-      ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
+      ['fontWeight','字体粗细','select',Core.WEIGHT_OPTIONS],
+      ['fontSize','主行字号（副行小 5px）','range',14,64,1],
+      ['showTranslation','外文歌曲优先显示对应翻译（无翻译时保持双行）','checkbox'],
+      ['foregroundMode','歌词前景色','select',[
+        {value:'system',label:'跟随系统'},
+        {value:'light',label:'浅色歌词'},
+        {value:'dark',label:'深色歌词'}
+      ]],
       ['align','对齐方式','select',['left','center','right']],
-      ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
-      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用逐词高亮（YRC）/行级扫描（LRC）','checkbox'],['showTranslation','有翻译时显示译文','checkbox']
+      ['width','显示宽度','range',300,1200,10],
+      ['__section','滚动与同步','控制行距、切换速度和歌词时间轴'],
+      ['lineGap','行间距','range',0,40,1],
+      ['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
+      ['animationSpeed','动画速度倍率','range',.5,2,.1],
+      ['enableWordScan','启用逐词或逐行高亮','checkbox'],
+      ['__section','纯音乐频谱','仅在识别为纯音乐或手动强制时显示'],
+      ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
+      ['spectrumBarWidth','纯音乐频谱单柱宽度（px）','range',1,12,1],
+      ['spectrumMode','频谱显示策略','select',[
+        {value:'auto',label:'自动识别（默认）'},
+        {value:'force-spectrum',label:'强制显示频谱（歌词误识别时）'},
+        {value:'lyrics-only',label:'始终显示歌词'}
+      ]]
     ];
+    configs.push(
+      ['__section','副歌辉光','有可靠副歌区间时，主行字体逐渐发光'],
+      ['chorusGlowEnabled','启用高潮歌词辉光（有可靠区间时生效）','checkbox'],
+      ['chorusGlowIntensity','辉光强度','range',0,100,1],
+      ['chorusGlowStyle','辉光范围','select',[
+        {value:'soft',label:'轻柔'},{value:'standard',label:'标准'}
+      ]]
+    );
+    let grid=null;
     for (const [key, caption, type, a, b, step] of configs) {
+      if(key==='__section'){
+        const section=el('section','fc-settings-section');
+        section.append(el('h3','fc-group-heading',caption),el('p','fc-section-desc',type));
+        grid=el('div','fc-form-grid');section.append(grid);panel.append(section);
+        continue;
+      }
       const label = el('label','fc-control');
       const title = el('span', '', caption);
       const input = type === 'select' ? el('select') : el('input');
@@ -452,13 +927,68 @@
       sync(); inputs.set(key, sync);
       input.addEventListener(type === 'range' || type === 'color' ? 'input' : 'change', () => {
         const val = type === 'checkbox' ? input.checked : (type === 'range' || key === 'fontWeight') ? Number(input.value) : input.value;
+        if(key==='width' && desktop)desktop.widthAdjusting=true;
         setSettings({ [key]: val });
+        // The preview/settings state is normalized synchronously, but the
+        // numeric <small> label used to refresh only when the panel reopened.
+        // Keep it in sync on EVERY input event, including during a drag.
+        sync();
       });
+      if(key==='width'){
+        let guideTimeout=null;
+        const finishWidthAdjustment=()=>{
+          clearTimeout(guideTimeout);guideTimeout=null;
+          if(desktop?.widthAdjusting){
+            desktop.widthAdjusting=false;
+            desktop.applySettings(settings);
+          }
+        };
+        input.addEventListener('pointerdown',()=>{
+          if(desktop){desktop.widthAdjusting=true;desktop.applySettings(settings);}
+        });
+        input.addEventListener('input',()=>{
+          clearTimeout(guideTimeout);
+          guideTimeout=setTimeout(finishWidthAdjustment,1100);
+        });
+        for(const event of ['pointerup','pointercancel','change','blur'])
+          input.addEventListener(event,finishWidthAdjustment);
+      }
       label.append(title, input, sub); grid.append(label);
     }
-    panel.append(el('p','fc-hint','字体提示：思源黑体只使用本机已安装字体，不会随插件附带字体文件；如本机没安装会自动使用后备字体。'));
-    panel.append(el('p','fc-mini','逐词说明：YRC 提供词组起止时间，可逐词高亮；普通 LRC 只有整行时间戳，使用行级平滑扫描，不能还原真实的每个字时间。播放时间轴使用 InfLink-rs；仅浏览器预览不连接网易云。'));
-    panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。桌面悬停按钮支持上/暂停/下一曲、锁定、关闭；锁定后请从这里解锁。无歌曲进度条。'));
+    const sourceSection=el('section','fc-settings-section');panel.append(sourceSection);
+    sourceSection.append(el('h3','fc-group-heading','歌词来源与离线使用'),
+      el('p','fc-section-desc','选择检索顺序，并指定额外的本地歌词目录'));
+    const ncmAutoPath=NcmPath?.getDownloadDir(window)||'';
+    const offlineGrid=el('div','fc-form-grid');sourceSection.append(offlineGrid);
+    const modeLabel=el('label','fc-control');
+    modeLabel.append(el('span','','检索方式'));
+    const modeSelect=el('select');
+    const modeOptions=[
+      ['online-first','在线优先 → 本地兜底（默认）'],
+      ['local-first','本地优先 → 在线兜底'],
+      ['local-only','仅本地歌词（不联网）']
+    ];
+    for(const [value,label] of modeOptions) {
+      const option=el('option','',label);option.value=value;modeSelect.append(option);
+    }
+    modeSelect.value=settings.lyricsMode;
+    modeSelect.addEventListener('change',()=>setSettings({lyricsMode:modeSelect.value}));
+    modeLabel.append(modeSelect);offlineGrid.append(modeLabel);
+    sourceSection.append(el('p','fc-hint',ncmAutoPath
+      ? '已自动检测到网易云下载目录：'+ncmAutoPath+'（无需填写）'
+      : '尚未识别网易云下载目录；仍会搜索 Windows「音乐」文件夹，可在下方补充本地目录。'));
+    const rootLabel=el('label','fc-control');
+    rootLabel.append(el('span','','额外音乐/歌词目录（可选，多个路径用分号分隔）'));
+    const rootsInput=el('input');
+    rootsInput.type='text';rootsInput.value=settings.localLyricsFolders;
+    rootsInput.placeholder='D:\\Music;E:\\Downloads\\Songs';
+    rootsInput.spellcheck=false;
+    rootsInput.addEventListener('change',()=>setSettings({localLyricsFolders:rootsInput.value}));
+    rootLabel.append(rootsInput);offlineGrid.append(rootLabel);
+    sourceSection.append(el('p','fc-hint',
+      '默认先检测网易云本身的下载目录，也搜索 Windows「音乐」文件夹；额外目录只在本机检索，不上传文件或路径。支持旁置 LRC/QRC/KRC 和部分音频内嵌歌词。下载目录里未必存有独立歌词文件，缺失时会继续回退。'));
+    advanced.append(el('p','fc-hint','思源黑体需本机安装。YRC 可逐词高亮；普通 LRC 按整行时间平滑扫描。桌面浮窗使用 Native/WebView2，播放时间轴来自 InfLink-rs。'));
+    panel.append(advanced);
     const rolling = new RollingView(stage); rolling.applySettings(settings);
     let useDemo = true, raf = 0, lastTrackKey = null, lastLines = null;
     const sub = () => rolling.applySettings(settings); subscribers.add(sub);
@@ -486,6 +1016,11 @@
         raf = requestAnimationFrame(drawFrame); return;
       }
       mountedOnce = true; offscreenSince = 0;
+      stage.style.visibility=settings.enabled?'visible':'hidden';
+      if(!settings.enabled){
+        status.textContent='设置页预览已关闭；桌面浮窗继续显示歌词';
+        raf=requestAnimationFrame(drawFrame);return;
+      }
       const song = live;
       const showingReal = !useDemo;
       const lines = showingReal ? (song?.lines || []) : DEMO;
@@ -498,25 +1033,33 @@
         : ((time - demoOrigin) % 14000) + settings.offsetMs;
       const idx = Core.resolveIndex(lines, ms);
       const progress = Core.lyricProgress(lines, idx, ms);
-      rolling.update(idx, progress, ms);
+      const glowActive=showingReal
+        ? Boolean(song?.clock.isPlaying() && !song?.pureMusic && !song?.trackInstrumental &&
+            Core.isChorusActive(song?.chorusIntervals,song?.clock.position()))
+        : Core.isChorusActive([{startMs:3500,endMs:7000}],(time-demoOrigin)%14000);
+      rolling.update(idx, progress, ms, glowActive);
       status.textContent = showingReal
-        ? (!song?.api ? '未连接 InfLink-rs：缺少可靠播放时间轴' : song.busy ? `正在获取歌词：${song.title}` : song.error || `正在播放：${song.title || '未知歌曲'} · ${song.kind === 'yrc' ? 'YRC 逐词计时' : 'LRC 行级计时'}`)
+        ? (!song?.api ? '未连接 InfLink-rs：缺少可靠播放时间轴' : song.busy ? `正在获取歌词：${song.title}` : song.error || `正在播放：${song.title || '未知歌曲'} · ${song.provider || '未知来源'} · ${(song.kind === 'yrc' || song.kind === 'lyricsfile') ? '逐词计时' : 'LRC 行级计时'}`)
         : 'YRC 逐词动画演示 · 14 秒循环，无需播放歌曲';
       raf = requestAnimationFrame(drawFrame);
     };
-    raf = requestAnimationFrame(drawFrame);
+    if (diag.preview) raf = requestAnimationFrame(drawFrame);
     return panel;
   });
 
+  const schemeQuery=window.matchMedia?.('(prefers-color-scheme: light)');
+  schemeQuery?.addEventListener?.('change',()=>{
+    notify(); // refresh the BetterNCM preview
+    desktop?.applySettings(settings); // and the native lyrics renderer
+  });
   plugin.onLoad(() => {
     if (live) live.destroy();
-    live = new LiveLyrics(); live.init();
-    desktop = new DesktopBridge();
+    if (diag.events) { live = new LiveLyrics(); live.init(); }
+    if (diag.window) desktop = new DesktopBridge();
     // Never start an unverified native window unless user explicitly opted in earlier.
-    if (plugin.getConfig('desktop-visible-v1',false)) desktop.enable();
+    if (desktop && plugin.getConfig('desktop-visible-v1',false)) desktop.enable();
   });
   plugin.onUnload?.(()=>{desktop?.shutdown();live?.destroy();});
-  // Never block NCM's renderer unload on native thread shutdown. The OS owns the
-  // DLL/window-thread lifetime when the host process exits; close via UI remains available.
+  window.addEventListener('beforeunload',()=>{desktop?.shutdown();});
 
 })();

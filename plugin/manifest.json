@@ -3,9 +3,9 @@
   "manifest_version": 1,
   "name": "FloatingCloud",
   "slug": "floatingcloud-lite",
-  "version": "0.4.16-beta",
+  "version": "0.4.37",
   "author": "FloatingCloud",
-  "description": "实验性透明桌面歌词：WebView2 独立窗口、原生进度同步与逐词动画。不接管网易云原生桌面歌词。",
+  "description": "桌面双行歌词、逐词高亮、翻译、副歌辉光与纯音乐频谱；使用 TaskbarLyrics 歌词源，并修复播放切歌卡顿。",
   "type": "extension",
   "ncm3-compatible": true,
   "ncm-version-req": ">=3.1.42 <3.1.43",
@@ -13,8 +13,18 @@
   "native_plugin": "native.dll",
   "injects": {
     "Main": [
-      { "file": "core.js" },
-      { "file": "main.js" }
+      {
+        "file": "core.js"
+      },
+      {
+        "file": "ncm-path.js"
+      },
+      {
+        "file": "vendor/tbl-presentation.js"
+      },
+      {
+        "file": "main.js"
+      }
     ]
   }
 }
