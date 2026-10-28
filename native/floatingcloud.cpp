@@ -108,21 +108,32 @@ void sendToWeb(const char* type, const std::string& payload) {
     std::wstring wide=toWide(json);
     if (!wide.empty()) web->PostWebMessageAsJson(wide.c_str());
 }
-// Coords are Win32 virtual-desktop coordinates, including negative monitor X/Y.
-// Clamp restored positions to the nearest connected monitor's working area.
-// Repositioning after a resolution/monitor change can never strand the window.
+// Preserve the exact user-dragged virtual-desktop top-left coordinate.
+// Older builds clamped the FULL window to rcWork on every resize/restart.
+// That moved a perfectly usable lyric surface near the screen edge and
+// appeared as a mysterious "position drift". Rescue only off-screen lyrics.
 POINT visiblePosition(int x, int y) {
-    RECT proposed{x,y,x+width,y+height};
-    const HMONITOR monitor=MonitorFromRect(&proposed,MONITOR_DEFAULTTONEAREST);
+    constexpr int kLyricsTop=92, kLyricsBottomMargin=8;
+    constexpr int kVisibleWidth=64, kVisibleHeight=16;
+    RECT lyricRect{x,y+kLyricsTop,x+width,y+height-kLyricsBottomMargin};
+    HMONITOR monitor=MonitorFromRect(&lyricRect,MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{sizeof(mi)};
     if(monitor && GetMonitorInfoW(monitor,&mi)) {
-        const RECT& area=mi.rcWork;
-        const int left=static_cast<int>(area.left);
-        const int top=static_cast<int>(area.top);
-        const int rightmost=std::max(left,static_cast<int>(area.right)-width);
-        const int bottommost=std::max(top,static_cast<int>(area.bottom)-height);
-        x=std::clamp(x,left,rightmost);
-        y=std::clamp(y,top,bottommost);
+        const RECT& work=mi.rcWork;
+        // A partial but real visible lyric area is intentional: do not adjust
+        // it just because the invisible toolbar or window extends past rcWork.
+        const int overlapWidth=std::max<int>(0,std::min(lyricRect.right,work.right)-
+                                               std::max(lyricRect.left,work.left));
+        const int overlapHeight=std::max<int>(0,std::min(lyricRect.bottom,work.bottom)-
+                                                std::max(lyricRect.top,work.top));
+        if(overlapWidth>=kVisibleWidth && overlapHeight>=kVisibleHeight)
+            return POINT{x,y};
+        const int minX=work.left-width+kVisibleWidth;
+        const int maxX=work.right-kVisibleWidth;
+        const int minY=work.top+kVisibleHeight-height+kLyricsBottomMargin;
+        const int maxY=work.bottom-kVisibleHeight-kLyricsTop;
+        x=std::clamp(x,std::min(minX,maxX),std::max(minX,maxX));
+        y=std::clamp(y,std::min(minY,maxY),std::max(minY,maxY));
     }
     return POINT{x,y};
 }
@@ -182,9 +193,13 @@ void checkLockedHover() {
     const ULONGLONG now=GetTickCount64();
     if(!hoveredSince){hoveredSince=now;return;}
     if(now-hoveredSince<800 || !unlockButton)return;
+    // Match the toolbar: #toolbar is positioned at top:49px relative to
+    // the lyric window, and its transparent buttons are 30–32px tall.
     const int buttonWidth=32,buttonHeight=32;
-    const int x=lyricArea.left+(lyricArea.right-lyricArea.left-buttonWidth)/2;
-    const int y=lyricArea.top+std::min(52,std::max(6,height-buttonHeight));
+    RECT owner{};
+    if(!GetWindowRect(main,&owner))return;
+    const int x=owner.left+(owner.right-owner.left-buttonWidth)/2;
+    const int y=owner.top+49;
     // A fully transparent icon-only popup stays clickable. No rectangle
     // or dark background appears behind the same ♙ symbol as the toolbar.
     SetWindowPos(unlockButton,HWND_TOPMOST,x,y,buttonWidth,buttonHeight,

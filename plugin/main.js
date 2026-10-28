@@ -366,10 +366,10 @@
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
   .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
-  .fc-line-translation{color:var(--fc-next);opacity:.82;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
   .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
-  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-secondary{color:var(--fc-next);opacity:1;transform:scale(var(--fc-secondary-scale))}
   .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:1;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -424,10 +424,14 @@
       v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
       v.setProperty('--fc-roll-ms',(560/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
-      v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
-      v.setProperty('--fc-highlight', s.highlight);
+      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
+      const palette=Core.lyricPalette(s.foregroundMode,schemeLight);
+      v.setProperty('--fc-color', palette.primary);
+      v.setProperty('--fc-translation', palette.translation);
+      v.setProperty('--fc-next', palette.secondary);
+      v.setProperty('--fc-highlight', palette.scan);
       v.setProperty('--fc-stroke', s.strokeWidth + 'px');
-      v.setProperty('--fc-stroke-color', s.strokeColor);
+      v.setProperty('--fc-stroke-color', palette.stroke);
       v.setProperty('--fc-shadow', s.shadow + 'px');
       v.setProperty('--fc-align', s.align);
       v.fontFamily = s.font;
@@ -606,7 +610,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.9（位置直存、TBL 频谱与工具栏优化）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.10 Beta（精确位置、TBL 色阶、频谱间距）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -626,7 +630,13 @@
     unlockButton.addEventListener('click',()=>{desktop?.unlock();updateDesktopStatus();});
     function updateDesktopStatus(){
       desktopToggle.textContent=desktop?.enabled?'关闭桌面浮窗':'打开桌面浮窗';
-      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+(desktop?.locked?' · 已锁定':' · 未锁定');
+      const stored=plugin.getConfig('desktop-position-v1',null);
+      const saved=Number.isInteger(stored?.x)&&Number.isInteger(stored?.y)
+        ? stored.x+','+stored.y:'未存档';
+      const actual=desktop?.enabled ? (desktop.call('getPosition')||'不可用') : '未显示';
+      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+
+        (desktop?.locked?' · 已锁定':' · 未锁定')+
+        ' · 位置存档 '+saved+' · 当前窗口 '+actual;
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
     demoWrap.append(tools, desktopStatus); panel.append(demoWrap);
@@ -644,9 +654,14 @@
       ['fontWeight','字体粗细（参考 TaskbarLyrics）','select',Core.WEIGHT_OPTIONS],
       ['fontSize','主行字号（副行小 2px）','range',14,64,1],
       ['showTranslation','外文歌曲优先显示对应翻译（无翻译时保持双行）','checkbox'],
-      ['color','文字颜色','color'],['nextColor','副行颜色','color'],['highlight','扫描高亮颜色','color'],
-      ['strokeWidth','描边宽度','range',0,5,.2],['strokeColor','描边颜色','color'],
+      ['foregroundMode','歌词前景色（参考 TBL：按透明度区分三行）','select',[
+        {value:'system',label:'跟随系统'},
+        {value:'light',label:'浅色歌词'},
+        {value:'dark',label:'深色歌词'}
+      ]],
+      ['strokeWidth','描边宽度','range',0,5,.2],
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
+      ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
       ['align','对齐方式','select',['left','center','right']],
       ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
       ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
@@ -757,6 +772,11 @@
     return panel;
   });
 
+  const schemeQuery=window.matchMedia?.('(prefers-color-scheme: light)');
+  schemeQuery?.addEventListener?.('change',()=>{
+    notify(); // refresh the BetterNCM preview
+    desktop?.applySettings(settings); // and the native lyrics renderer
+  });
   plugin.onLoad(() => {
     if (live) live.destroy();
     live = new LiveLyrics(); live.init();
