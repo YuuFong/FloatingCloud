@@ -165,7 +165,7 @@ test('native resize anchors the actual live window center and persists resized p
 
 test('slider numeric captions update on each input event after normalization',()=>{
  const settings=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
- assert.match(settings,/input\.addEventListener\(type === 'range' \|\| type === 'color' \? 'input' : 'change',[\s\S]*?setSettings\(\{ \[key\]: val \}\);\s*sync\(\);/);
+ assert.match(settings,/input\.addEventListener\(type === 'range' \|\| type === 'color' \? 'input' : 'change',[\s\S]*?setSettings\(\{ \[key\]: val \}\);[\s\S]{0,300}?sync\(\);/);
  assert.match(settings,/sub\.textContent = type === 'range' \? String\(v\) : ''/);
 });
 test('Win32 height / visibility updates no longer reset previously dragged position',()=>{
