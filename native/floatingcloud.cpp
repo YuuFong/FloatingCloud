@@ -63,6 +63,7 @@ std::atomic<int> draggedX{0}, draggedY{0};
 // Staged synchronously from JS BEFORE the first native HWND is created.
 std::atomic<bool> initialPlacementValid{false};
 std::atomic<int> initialX{0}, initialY{0};
+std::atomic<int> initialWidth{740},initialHeight{206};
 bool hasPlacement=false; // accessed only from the UI thread
 POINT desiredPlacement{};
 HWND unlockButton=nullptr;
@@ -136,6 +137,14 @@ POINT visiblePosition(int x, int y) {
         y=std::clamp(y,std::min(minY,maxY),std::max(minY,maxY));
     }
     return POINT{x,y};
+}
+// Publishes only deliberate movement, not transient OS layout coordinates.
+void publishPosition(int x,int y){
+    draggedX.store(x);
+    draggedY.store(y);
+    desiredPlacement={x,y};
+    hasPlacement=true;
+    positionChanged.store(true);
 }
 void keepWindowVisible(HWND h) {
     if(!h)return;
@@ -439,11 +448,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
                     // GetWindowRect later can return a resized/clamped rect.
                     RECT finalRect{};
                     if(GetWindowRect(h,&finalRect)) {
-                        draggedX.store(finalRect.left);
-                        draggedY.store(finalRect.top);
-                        desiredPlacement={finalRect.left,finalRect.top};
-                        hasPlacement=true;
-                        positionChanged.store(true);
+                        publishPosition(finalRect.left,finalRect.top);
                     }
                 }
                 // Short click toggles toolbar; drag only moves the window.
@@ -478,14 +483,28 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             return 0;
         case kLock:setLock(wp!=0);return 0;
         case kResize: {
-            width=std::max(300,std::min(1200,static_cast<int>(wp)));
-            SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
-            if(hasPlacement) applyPlacement(h);
-            else keepWindowVisible(h);
+            const int nextWidth=std::clamp(static_cast<int>(wp),300,1200);
+            if(nextWidth==width)return 0;
+            RECT before{};
+            if(!GetWindowRect(h,&before))return 0;
+            // Keep the VISIBLE window's center fixed while expanding evenly
+            // left and right; do not jump back to an old saved top-left.
+            const int currentWidth=before.right-before.left;
+            const int centerX=before.left+currentWidth/2;
+            const int nextX=centerX-nextWidth/2;
+            width=nextWidth;
+            const POINT safe=visiblePosition(nextX,before.top);
+            if(SetWindowPos(h,HWND_TOPMOST,safe.x,safe.y,width,height,SWP_NOACTIVATE)){
+                // A width adjustment is an intentional placement change:
+                // persist its new left edge for the NEXT NCM startup.
+                publishPosition(safe.x,safe.y);
+            }
             return 0;
         }
         case kHeight: {
-            height=std::max(110,std::min(400,static_cast<int>(wp)));
+            const int requestedHeight=std::clamp(static_cast<int>(wp),110,400);
+            if(height==requestedHeight)return 0;
+            height=requestedHeight;
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
             if(hasPlacement) applyPlacement(h);
             else keepWindowVisible(h);
@@ -517,6 +536,8 @@ DWORD WINAPI windowThread(LPVOID) {
     wc.hInstance=module;wc.lpfnWndProc=windowProc;wc.lpszClassName=klass;
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     RegisterClassExW(&wc);
+    width=std::clamp(initialWidth.load(),300,1200);
+    height=std::clamp(initialHeight.load(),110,400);
     int screenW=GetSystemMetrics(SM_CXSCREEN), screenH=GetSystemMetrics(SM_CYSCREEN);
     // Construct the HWND at the *saved* coordinate before WebView2 exists.
     // No visible window can ever appear briefly at a default position.
@@ -632,6 +653,17 @@ static const char* setHeight(void** a){
     return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
         static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+// Create at the user-configured dimensions immediately, so startup never
+// performs a 740px->custom-width recentering that overwrites saved placement.
+static const char* setInitialSize(void** a) {
+    if(!a||!a[0])return "error";
+    long long w=0,h=0;char extra=0;
+    if(std::sscanf(static_cast<char*>(a[0]),"%lld,%lld%c",&w,&h,&extra)!=2 ||
+       w<300||w>1200||h<110||h>400)return "error";
+    fc::initialWidth.store(static_cast<int>(w));
+    fc::initialHeight.store(static_cast<int>(h));
+    return "ok";
+}
 // Stage the persisted position before opening a HWND. The JS controller calls
 // this synchronously before floatingcloud.open; no PostMessage ordering race.
 static const char* setInitialPosition(void** a) {
@@ -712,6 +744,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
+    api->addNativeAPI(stringArg,1,"floatingcloud.setInitialSize",setInitialSize);
     api->addNativeAPI(stringArg,1,"floatingcloud.setInitialPosition",setInitialPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.setPosition",setPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
