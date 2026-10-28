@@ -163,6 +163,7 @@ void checkLockedHover() {
     // Only the two actual lyric lines (below the 92px header) start
     // the hover timer. The blank toolbar region must NOT trigger unlocking.
     lyricArea.top=std::min(lyricArea.bottom,lyricArea.top+92);
+    lyricArea.bottom=std::max(lyricArea.top,lyricArea.bottom-8);
     RECT popupArea{};
     const bool popupVisible=unlockButton && IsWindowVisible(unlockButton);
     if(popupVisible) GetWindowRect(unlockButton,&popupArea);
