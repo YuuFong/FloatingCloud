@@ -99,12 +99,12 @@ static class Program
                 new JsonSerializerOptions{PropertyNameCaseInsensitive=true});
             if(q is null)return 3;
             var result=await Lookup(q);
-            await File.WriteAllTextAsync(output,JsonSerializer.Serialize(result),Encoding.UTF8);
+            await File.WriteAllTextAsync(output,JsonSerializer.Serialize(result),new UTF8Encoding(false));
             return 0;
         }catch(Exception e) {
             try {
                 var response=new Response("","","none",false,[],e.GetType().Name);
-                await File.WriteAllTextAsync(output,JsonSerializer.Serialize(response),Encoding.UTF8);
+                await File.WriteAllTextAsync(output,JsonSerializer.Serialize(response),new UTF8Encoding(false));
             }catch{ /* parent treats absent output as unavailable */ }
             return 1;
         }
