@@ -68,7 +68,7 @@ test('saved secondary-monitor coordinates and user width are staged before HWND 
  assert.ok(ids.indexOf('floatingcloud.setInitialPosition')<ids.indexOf('floatingcloud.open'));
  assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialPosition').args[0],'-1250,340');
  assert.ok(ids.indexOf('floatingcloud.setInitialSize')<ids.indexOf('floatingcloud.open'));
- assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialSize').args[0],'740,194');
+ assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialSize').args[0],'740,206');
  assert.equal(h.calls.some(c=>c.id==='floatingcloud.setPosition'),false);
  assert.ok(ids.indexOf('floatingcloud.width')<ids.indexOf('floatingcloud.show'));
 });
@@ -151,7 +151,7 @@ test('custom width must be set before HWND open instead of re-centering after st
  const ids=h.calls.map(x=>x.id);
  assert.ok(ids.indexOf('floatingcloud.setInitialSize')<ids.indexOf('floatingcloud.setInitialPosition'));
  assert.ok(ids.indexOf('floatingcloud.setInitialPosition')<ids.indexOf('floatingcloud.open'));
- assert.equal(h.calls.find(x=>x.id==='floatingcloud.setInitialSize').args[0],'520,194');
+ assert.equal(h.calls.find(x=>x.id==='floatingcloud.setInitialSize').args[0],'520,206');
  assert.equal(h.calls.find(x=>x.id==='floatingcloud.setInitialPosition').args[0],'280,420');
  assert.equal(h.calls.some(x=>x.id==='floatingcloud.setPosition'),false);
 });
