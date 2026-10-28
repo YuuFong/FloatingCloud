@@ -122,10 +122,10 @@ POINT visiblePosition(int x, int y) {
         const RECT& work=mi.rcWork;
         // A partial but real visible lyric area is intentional: do not adjust
         // it just because the invisible toolbar or window extends past rcWork.
-        const int overlapWidth=std::max(0,std::min(lyricRect.right,work.right)-
-                                          std::max(lyricRect.left,work.left));
-        const int overlapHeight=std::max(0,std::min(lyricRect.bottom,work.bottom)-
-                                           std::max(lyricRect.top,work.top));
+        const int overlapWidth=std::max<int>(0,std::min(lyricRect.right,work.right)-
+                                               std::max(lyricRect.left,work.left));
+        const int overlapHeight=std::max<int>(0,std::min(lyricRect.bottom,work.bottom)-
+                                                std::max(lyricRect.top,work.top));
         if(overlapWidth>=kVisibleWidth && overlapHeight>=kVisibleHeight)
             return POINT{x,y};
         const int minX=work.left-width+kVisibleWidth;
