@@ -388,11 +388,15 @@
   .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
+     inline spans, so keep FC's base and scan layers as real block boxes. */
+  .fc-text-base{display:block;white-space:nowrap}
+
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
      Without scanning enabled, retain the normal 90%-alpha primary color. */
   .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next);clip-path:inset(0 0 0 var(--fc-progress,0%))}
-  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   @supports ((mask-image:linear-gradient(to right,#000,transparent)) or (-webkit-mask-image:linear-gradient(to right,#000,transparent))){
     .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{clip-path:none}
