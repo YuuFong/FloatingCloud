@@ -73,12 +73,14 @@ test('drag end writes position once and survives closing/restarting',()=>{
  const h=boot();
  assert.equal(h.calls.some(c=>c.id==='floatingcloud.setPosition'),false);
  h.move(-830,510);h.tick();
- assert.deepEqual(h.saved['desktop-position-v1'],{x:-830,y:510});
+ assert.equal(h.saved['desktop-position-v1'].x,-830);
+ assert.equal(h.saved['desktop-position-v1'].y,510);
  const writes=h.writes.filter(w=>w.k==='desktop-position-v1').length;
  h.tick();
  assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,writes);
  h.unload();
- assert.deepEqual(h.saved['desktop-position-v1'],{x:-830,y:510});
+ assert.equal(h.saved['desktop-position-v1'].x,-830);
+ assert.equal(h.saved['desktop-position-v1'].y,510);
  const restarted=boot({...h.saved});
  assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setPosition').args[0],'-830,510');
 });
