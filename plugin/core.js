@@ -28,7 +28,7 @@
     fontWeight: 600, fontSize: 30,
     foregroundMode: 'system', strokeWidth: 1.4,
     shadow: 3, lineGap: 12, align: 'center', width: 740,
-    spectrumGap: 3,
+    spectrumGap: 3, spectrumBarWidth: 3,
     spectrumMode: 'auto',
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
     enableWordScan: true,
@@ -46,7 +46,10 @@
       primary: `rgba(${rgb},0.9)`,
       translation: `rgba(${rgb},0.7)`,
       secondary: `rgba(${rgb},0.6)`,
-      scan: `rgba(${rgb},1)`,
+      // TBL v1.7.4 computes the overlay from byte alphas:
+      // primary=229, secondary=153 -> (229-153)*255/(255-153)=190,
+      // so overlaying the 60%-alpha base yields the 90%-alpha played text.
+      scan: `rgba(${rgb},${(190/255).toFixed(3)})`,
       stroke: darkText ? '#f8fafc' : '#222936',
       spectrum: darkText ? '#111827' : '#ffffff'
     };
@@ -66,6 +69,7 @@
       shadow: clamp(number(v.shadow, 3), 0, 16),
       lineGap: clamp(number(v.lineGap, 12), 0, 40),
       spectrumGap: clamp(number(v.spectrumGap, 3), 0, 14),
+      spectrumBarWidth: clamp(number(v.spectrumBarWidth, 3), 1, 12),
       spectrumMode: ['auto','force-spectrum','lyrics-only'].includes(v.spectrumMode)
         ? v.spectrumMode : 'auto',
       align: ['left', 'center', 'right'].includes(v.align) ? v.align : 'center',
