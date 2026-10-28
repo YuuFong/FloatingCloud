@@ -26,11 +26,14 @@
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch (e) { console.warn('[FloatingCloud] view update', e); } });
   const setSettings = (patch) => {
+    const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders;
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
     try { desktop?.applySettings(settings); } catch (e) { console.warn(e); }
+    if(previousMode!==settings.lyricsMode ||
+       previousFolders!==settings.localLyricsFolders) live?.refresh();
   };
 
   class LiveLyrics {
@@ -90,7 +93,7 @@
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
       } catch (_) { /* ignore */ }
-      if (!this.title || !this.artist) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
+      if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
       if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
       const timer = setTimeout(() => ctrl.abort(), 15500);
@@ -102,7 +105,12 @@
         const nativeApi=window.betterncm_native?.native_plugin;
         if(nativeApi?.call) {
           try {
-            const request={TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs};
+            const offlineHint=(typeof navigator !== 'undefined' && navigator.onLine===false);
+            const localFolders=settings.localLyricsFolders.split(/[;\r\n]+/).map(p=>p.trim()).filter(Boolean).slice(0,12);
+            const request={
+              TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
+              Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint
+            };
             if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
               const limit=performance.now()+12500;
               while(!ctrl.signal.aborted && performance.now()<limit) {
@@ -130,7 +138,12 @@
         }
         // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
         // No invented word times: a strict song/artist/duration match is required.
-        if (!result && !this.pureMusic && this.title && this.artist && !ctrl.signal.aborted) {
+        // The renderer's LRCLIB fallback is only legal in an ONLINE mode.
+        // No HTTP request whatsoever is issued in local-only/offline state.
+        const allowHttpFallback=settings.lyricsMode!=='local-only' &&
+          !(typeof navigator !== 'undefined' && navigator.onLine===false);
+        if (allowHttpFallback && !result && !this.pureMusic &&
+            this.title && this.artist && !ctrl.signal.aborted) {
           const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
           if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
           const response=await fetch('https://lrclib.net/api/get?'+args,{
@@ -577,7 +590,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.5（歌词窗口位置记忆测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.6（本地离线歌词测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -646,6 +659,32 @@
       });
       label.append(title, input, sub); grid.append(label);
     }
+    panel.append(el('h3','fc-group-heading','歌词来源与离线使用'));
+    const offlineGrid=el('div','fc-form-grid');panel.append(offlineGrid);
+    const modeLabel=el('label','fc-control');
+    modeLabel.append(el('span','','检索方式'));
+    const modeSelect=el('select');
+    const modeOptions=[
+      ['online-first','在线优先 → 本地兜底（默认）'],
+      ['local-first','本地优先 → 在线兜底'],
+      ['local-only','仅本地歌词（不联网）']
+    ];
+    for(const [value,label] of modeOptions) {
+      const option=el('option','',label);option.value=value;modeSelect.append(option);
+    }
+    modeSelect.value=settings.lyricsMode;
+    modeSelect.addEventListener('change',()=>setSettings({lyricsMode:modeSelect.value}));
+    modeLabel.append(modeSelect);offlineGrid.append(modeLabel);
+    const rootLabel=el('label','fc-control');
+    rootLabel.append(el('span','','本地音乐/歌词目录（多个路径用分号分隔）'));
+    const rootsInput=el('input');
+    rootsInput.type='text';rootsInput.value=settings.localLyricsFolders;
+    rootsInput.placeholder='D:\\Music;E:\\Downloads\\Songs';
+    rootsInput.spellcheck=false;
+    rootsInput.addEventListener('change',()=>setSettings({localLyricsFolders:rootsInput.value}));
+    rootLabel.append(rootsInput);offlineGrid.append(rootLabel);
+    panel.append(el('p','fc-hint',
+      '默认也会搜索 Windows「音乐」文件夹；额外目录只在本机检索，不上传文件或路径。支持旁置 LRC/QRC/KRC 和部分音频内嵌歌词。普通 LRC 是行级计时；离线模式完全跳过网络歌词源。'));
     panel.append(el('p','fc-hint','字体提示：思源黑体只使用本机已安装字体，不会随插件附带字体文件；如本机没安装会自动使用后备字体。'));
     panel.append(el('p','fc-mini','逐词说明：YRC 提供词组起止时间，可逐词高亮；普通 LRC 只有整行时间戳，使用行级平滑扫描，不能还原真实的每个字时间。播放时间轴使用 InfLink-rs；仅浏览器预览不连接网易云。'));
     panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。点击歌词显示工具栏，直接按住歌词拖动，工具栏包含快退/快进半秒、上一曲、播放/暂停、下一曲、锁定和关闭；锁定后可从这里解锁。无歌曲进度条。'));
