@@ -33,4 +33,5 @@ Copy-Item "$root/build/lyric-helper/FloatingCloudLyrics.exe" "$root/plugin/Float
 if($LASTEXITCODE -ne 0){throw 'Offline lyrics integration test failed'}
 
 python "$root/tools/pack_plugin.py"
-Write-Host 'Completed: FloatingCloud-v0.4.37.plugin'
+$pluginVersion = (Get-Content (Join-Path $root 'plugin/manifest.json') -Raw | ConvertFrom-Json).version
+Write-Host "Completed: FloatingCloud-v$pluginVersion.plugin"
