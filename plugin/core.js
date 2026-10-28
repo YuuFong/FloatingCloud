@@ -30,7 +30,9 @@
     highlight: '#ffffff', strokeWidth: 1.4, strokeColor: '#222936',
     shadow: 3, lineGap: 12, align: 'center', width: 740,
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
-    enableWordScan: true
+    enableWordScan: true,
+    lyricsMode: 'online-first',
+    localLyricsFolders: ''
   });
   const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
   const number = (v, def) => (v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : def;
@@ -56,7 +58,11 @@
       offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
       showTranslation: Boolean(v.showTranslation), // original + translation when provided
-      enableWordScan: Boolean(v.enableWordScan)
+      enableWordScan: Boolean(v.enableWordScan),
+      lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
+        ? v.lyricsMode : 'online-first',
+      // Paths are saved only in BetterNCM settings and sent to the local .NET helper.
+      localLyricsFolders: String(v.localLyricsFolders||'').slice(0,2048)
     };
   }
   const timestampPattern = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
