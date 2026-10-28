@@ -263,7 +263,7 @@
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
   .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform 560ms cubic-bezier(0.22,0.72,0.24,1),opacity 560ms cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
   .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
   .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
@@ -318,6 +318,7 @@
       v.setProperty('--fc-pitch', this.pitch + 'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
       v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
+      v.setProperty('--fc-roll-ms',(560/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
       v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
       v.setProperty('--fc-highlight', s.highlight);
@@ -466,8 +467,10 @@
         },
         complete:()=>{
           if(ticket!==this.generation)return;
-          this.promote(index,ticket);
+          // Commit the completed TBL presentation frame *before* replaying the
+          // latest queued update, or a fast consecutive line change can snap.
           this.presentation.setCurrentFrame(target);
+          this.promote(index,ticket);
         }
       });
     }
