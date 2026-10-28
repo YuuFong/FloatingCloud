@@ -9,7 +9,7 @@ using TaskbarLyrics.Core.Services;
 
 record Request(string TrackKey, string Title, string Artist, string Album, double DurationMs);
 record WordResult(string text, double start, double duration);
-record LineResult(double time, double duration, string text, WordResult[] words, string kind);
+record LineResult(double time, double duration, string text, string translation, WordResult[] words, string kind);
 record Response(string trackKey, string provider, string kind, bool pureMusic, LineResult[] lines, string? error);
 
 static class Program
@@ -70,6 +70,7 @@ static class Program
                                 line.StartTime.TotalMilliseconds,
                                 line.EndTime is null?0:Math.Max(0,(line.EndTime.Value-line.StartTime).TotalMilliseconds),
                                 line.Text,
+                                line.Translation ?? string.Empty,
                                 line.Segments.Select(seg=>new WordResult(seg.Text,
                                     seg.StartTime.TotalMilliseconds,
                                     (seg.EndTime-seg.StartTime).TotalMilliseconds)).ToArray(),
