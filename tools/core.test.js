@@ -155,3 +155,16 @@ test('Lyricsfile missing word end_ms derives next start or line end',()=>{
   assert.equal(parsed[0].words[3].duration,2917);
   assert.ok(C.wordScanProgress(parsed[0],1000)>0);
 });
+
+test('local lyric lookup mode migration and path settings',()=>{
+  const defaults=C.normalizeSettings({});
+  assert.equal(defaults.lyricsMode,'online-first');
+  assert.equal(defaults.localLyricsFolders,'');
+  const local=C.normalizeSettings({lyricsMode:'local-only',
+    localLyricsFolders:'D:\\Music;E:\\Songs'});
+  assert.equal(local.lyricsMode,'local-only');
+  assert.equal(local.localLyricsFolders,'D:\\Music;E:\\Songs');
+  assert.equal(C.normalizeSettings({lyricsMode:'invalid'}).lyricsMode,'online-first');
+  assert.equal(C.normalizeSettings({lyricsMode:'local-first'}).lyricsMode,'local-first');
+  assert.ok(C.normalizeSettings({localLyricsFolders:'a'.repeat(6000)}).localLyricsFolders.length<=2048);
+});

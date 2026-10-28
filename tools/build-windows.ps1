@@ -28,6 +28,9 @@ if(-not (Test-Path (Join-Path $tbl 'TaskbarLyrics.Core/TaskbarLyrics.Core.csproj
 dotnet publish "$root/lyric-helper/FloatingCloudLyrics.csproj" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o "$root/build/lyric-helper"
 if($LASTEXITCODE -ne 0){throw 'TaskbarLyrics .NET lyric provider build failed'}
 Copy-Item "$root/build/lyric-helper/FloatingCloudLyrics.exe" "$root/plugin/FloatingCloudLyrics.exe" -Force
+# End-to-end assertion: offline-only local LRC -> real timestamps, no HTTP.
+& "$root/tools/test-offline.ps1"
+if($LASTEXITCODE -ne 0){throw 'Offline lyrics integration test failed'}
 
 python "$root/tools/pack_plugin.py"
-Write-Host 'Completed: FloatingCloud-v0.4.5.plugin'
+Write-Host 'Completed: FloatingCloud-v0.4.6.plugin'
