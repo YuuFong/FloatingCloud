@@ -20,11 +20,12 @@ jobs:
         run: |
           node --check plugin/core.js
           node --check plugin/main.js
-          node --test tools/core.test.js tools/position.test.js
+          node --check plugin/ncm-path.js
+          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js
       - name: Build and package x64 plugin
         shell: pwsh
         run: .\tools\build-windows.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: FloatingCloud-plugin-win64
-          path: FloatingCloud-v0.4.6.plugin
+          path: FloatingCloud-v0.4.7.plugin
