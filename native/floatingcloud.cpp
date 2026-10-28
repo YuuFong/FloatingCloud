@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <windowsx.h>
 #include "spectrum.h"
+#include "lyrics_sidecar.h"
 #include <d3d11.h>
 #include <dcomp.h>
 #include <dxgi.h>
@@ -356,6 +357,7 @@ bool startHost() {
 }
 void stopHost() {
     fc_spectrum::shutdown();
+    fc_lyrics::shutdown();
     std::lock_guard<std::mutex> guard(gate);
     if(!worker) return;
     HWND h=hwnd.load();
@@ -416,6 +418,16 @@ static const char* spectrumEnabled(void** a) {
     fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
     return fc_spectrum::available()?"available":"starting-or-disabled";
 }
+static const char* lyricsLookup(void** a){
+    if(!a || !a[0])return "error";
+    fc_lyrics::request(static_cast<const char*>(a[0]));
+    return "started";
+}
+static const char* lyricsPoll(void**){
+    static thread_local std::string output;
+    output=fc_lyrics::poll();
+    return output.c_str();
+}
 static const char* poll(void**){
     switch(fc::requestedAction.exchange(0)){
         case 1:return "previous";case 2:return "toggle";case 3:return "next";
@@ -443,6 +455,8 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
     api->addNativeAPI(stringArg,1,"floatingcloud.spectrumEnabled",spectrumEnabled);
+    api->addNativeAPI(stringArg,1,"floatingcloud.lyricsLookup",lyricsLookup);
+    api->addNativeAPI(nullptr,0,"floatingcloud.lyricsPoll",lyricsPoll);
     api->addNativeAPI(nullptr,0,"floatingcloud.poll",poll);
     api->addNativeAPI(nullptr,0,"floatingcloud.shutdown",shutdown);
     return 0;
