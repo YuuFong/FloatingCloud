@@ -263,6 +263,7 @@
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
   .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
   .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
@@ -382,23 +383,28 @@
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
-      // At -pitch: row 1 is visually at y=0. After removing row 0 and
-      // setting transform to 0, *the same DOM row* remains at y=0.
-      // No re-render, font swap, or one-frame snap at the roll boundary.
-      this.track.style.transition = 'none';
-      const departed = this.rows.shift();
-      departed.remove();
-      this.rows[0].className = 'fc-line fc-line-primary';
-      const incoming = el('div', 'fc-line fc-line-secondary');
-      this.rows.push(incoming); this.track.append(incoming);
-      this.scanRows.shift(); this.scanRows.push(null);
-      this.track.style.transform = 'translate3d(0,0,0)';
-      this.index = nextIndex;
-      this.renderRow(2, this.index + 2);
-      this.rows[1].classList.remove('fc-incoming');
-      this.busy = false;
-      const pending = this.pending; this.pending = null;
-      if (pending) this.update(pending.index, pending.progress, pending.timeMs);
+      // TBL's finalizeTransition: turn off *all* child transitions before
+      // resetting font scaling and moving the content origin. The previous
+      // implementation shifted live DOM rows, causing a white flash.
+      this.track.classList.add('fc-no-anim');
+      this.track.style.transition='none';
+      this.rows[0].style.opacity='.16';
+      this.rows[1].style.opacity='1';
+      void this.track.offsetHeight;
+      this.index=nextIndex;
+      this.track.style.transform='translate3d(0,0,0)';
+      this.draw();
+      this.rows[0].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[1].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[2].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows.forEach(r=>{r.style.opacity='';r.style.transform='';});
+      this.renderScan(Core.lineProgress(this.lines,nextIndex,this.lastPosition),
+        this.lastPosition,this.scanRows[0]);
+      void this.track.offsetHeight;
+      this.track.classList.remove('fc-no-anim');
+      this.busy=false;
+      const pending=this.pending;this.pending=null;
+      if(pending)this.update(pending.index,pending.progress,pending.timeMs);
     }
     frameAt(index, progress, timeMs) {
       const safe=Math.max(0,index);
@@ -451,7 +457,10 @@
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add('fc-leaving');
           this.rows[1].classList.add('fc-promoting');
-          this.rows[2].classList.add('fc-incoming');
+          // Incoming second line is visible through the moving viewport,
+          // exactly as in TBL; hiding it and revealing it only at the end
+          // caused the next-line flash.
+          this.rows[2].classList.remove('fc-incoming');
           // Commit the starting geometry before starting the transform.
           void this.track.offsetHeight;
           this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
@@ -480,7 +489,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.2（TaskbarLyrics 转场测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.3（TBL 转场与音频频谱测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
