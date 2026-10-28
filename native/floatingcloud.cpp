@@ -57,7 +57,7 @@ POINT dragWindowOrigin{};
 bool visible = false;
 bool webReady = false;
 int width = 740;
-int height = 196; // dynamically adjusted from two-row metrics
+int height = 206; // dynamically adjusted from two-row metrics
 std::string latestSettings = "{}";
 std::string latestLyrics = "{}";
 std::string latestFrame = "{}";
@@ -243,7 +243,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
             // 0..64px is reserved for the toolbar / optional information.
             // Drag only on the actual lyric area; never consume toolbar clicks.
-            if (p.y >= 64 && p.y < height) {
+            if (p.y >= 72 && p.y < height) {
                 lyricPointerDown=true;lyricDidDrag=false;
                 GetCursorPos(&dragStartScreen);
                 RECT wr{};GetWindowRect(h,&wr);
