@@ -176,3 +176,24 @@ test('Win32 height / visibility updates no longer reset previously dragged posit
  const show=cpp.slice(cpp.indexOf('case kVisible:'),cpp.indexOf('case kLock:'));
  assert.ok(!show.includes('applyPlacement(h)'));
 });
+
+test('audio capture switching never joins WASAPI on the NCM renderer thread',()=>{
+ const cpp=fs.readFileSync(path.join(__dirname,'../native/floatingcloud.cpp'),'utf8');
+ const start=cpp.indexOf('static const char* spectrumEnabled(void** a)');
+ const end=cpp.indexOf('static const char* spectrumStatus',start);
+ const body=cpp.slice(start,end);
+ assert.ok(body.includes('PostMessageW(h,fc::kSpectrumSwitch'));
+ assert.ok(!body.includes('fc_spectrum::enable('));
+ assert.ok(cpp.includes('case kSpectrumSwitch:'));
+ const startHandler=cpp.indexOf('case kSpectrumSwitch:');
+ assert.ok(cpp.slice(startHandler,startHandler+400).includes('fc_spectrum::enable(wp!=0)'));
+ assert.ok(cpp.includes('SetTimer(h,kSpectrumUpdateTimer,33,nullptr)'));
+});
+test('playback-safe renderer avoids animated GPU masking and hidden spectrum layout churn',()=>{
+ const main=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+ const generator=fs.readFileSync(path.join(__dirname,'../tools/generate_desktop.py'),'utf8');
+ assert.ok(main.includes('clip-path:inset(0 calc(100% - var(--fc-progress,0%))'));
+ assert.ok(!main.includes('-webkit-mask-image:linear-gradient'));
+ assert.ok(generator.includes('if(!pureMusic){'));
+ assert.ok(generator.includes('now-lastSpectrumTime<30'));
+});

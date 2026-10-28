@@ -395,19 +395,13 @@
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
      Without scanning enabled, retain the normal 90%-alpha primary color. */
-  .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next);clip-path:inset(0 0 0 var(--fc-progress,0%))}
+  .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next)}
   .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
-  @supports ((mask-image:linear-gradient(to right,#000,transparent)) or (-webkit-mask-image:linear-gradient(to right,#000,transparent))){
-    .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{clip-path:none}
-    .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-highlight{
-      clip-path:none;color:var(--fc-highlight);
-      --fc-scan-feather:min(0.12em,var(--fc-progress,0%),calc(100% - var(--fc-progress,0%)));
-      -webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(var(--fc-progress,0%) - var(--fc-scan-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-scan-feather)),transparent 100%);
-      mask-image:linear-gradient(to right,#000 0,#000 calc(var(--fc-progress,0%) - var(--fc-scan-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-scan-feather)),transparent 100%);
-      -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat
-    }
-  }
+  /* Playback-safe renderer: no per-frame mask-image or mask gradients.
+     The clipped scan layer is fully opaque and noticeably brighter than the
+     soft unplayed base. This avoids animated WebView2 GPU masks that may
+     contribute to some systems freezing when playback starts. */
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
@@ -646,7 +640,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.14 Beta（TBL 原版色阶与频谱柱宽）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.15 Beta（播放稳定性与高亮对比度修复）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);

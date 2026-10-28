@@ -250,13 +250,13 @@ test('TaskbarLyrics 0.90/0.70/0.60 with line opacities keeps translation between
  assert.equal(p.translation,'rgba(255,255,255,0.7)');
 });
 
-test('TaskbarLyrics v1.7.4 scan overlay uses alpha compositing (not opaque white)',()=>{
- const p=C.lyricPalette('light',false);
- assert.equal(p.scan,'rgba(255,255,255,0.745)');
- assert.equal(C.lyricPalette('dark',false).scan,'rgba(17,24,39,0.745)');
- const secondaryAlpha=153/255,overlayAlpha=190/255;
- const combined=secondaryAlpha+(1-secondaryAlpha)*overlayAlpha;
- assert.ok(Math.abs(combined-229/255)<0.002);
+test('playback hotfix maintains TBL soft unplayed text but makes performed words fully bright',()=>{
+ const white=C.lyricPalette('light',false), dark=C.lyricPalette('dark',false);
+ assert.equal(white.secondary,'rgba(255,255,255,0.6)');
+ assert.equal(white.translation,'rgba(255,255,255,0.7)');
+ assert.equal(white.primary,'rgba(255,255,255,0.9)');
+ assert.equal(white.scan,'rgba(255,255,255,1)');
+ assert.equal(dark.scan,'rgba(17,24,39,1)');
 });
 test('bar width remains independent of spacing, persists, and clamps to valid values',()=>{
  assert.equal(C.normalizeSettings({}).spectrumBarWidth,3);

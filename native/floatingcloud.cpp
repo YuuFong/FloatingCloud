@@ -42,6 +42,7 @@ constexpr UINT kResize = WM_APP + 106;
 constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
 constexpr UINT kSetPosition = WM_APP + 109;
+constexpr UINT kSpectrumSwitch = WM_APP + 110;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
 constexpr UINT_PTR kSpectrumUpdateTimer = 2403;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
@@ -399,7 +400,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
             if(wp==kSpectrumUpdateTimer){
-                // TBL-like ~60 fps spectral updates, independent of JS's
+                // Moderate ~30 fps spectral updates, independent of JS's
                 // slower playback state/timeline polling.
                 if(visible && webReady && fc_spectrum::available())
                     sendToWeb("spectrum",fc_spectrum::readJson());
@@ -462,6 +463,14 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_MOUSELEAVE:
             forwardMouse(msg,wp,lp);return 0;
         case WM_SIZE:sizeController();return 0;
+        case kSpectrumSwitch: {
+            // WASAPI shutdown can wait for a capture thread / COM audio call.
+            // NEVER join that thread synchronously through BetterNCM's JS
+            // native-plugin bridge: Windows audio driver stalls would freeze
+            // NCM playback UI. Keep it on FC's independent HWND thread.
+            fc_spectrum::enable(wp!=0);
+            return 0;
+        }
         case kFrame: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
             if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);}return 0;
@@ -570,7 +579,7 @@ DWORD WINAPI windowThread(LPVOID) {
         0,0,32,32,h,nullptr,module,nullptr);
     if(unlockButton) SetLayeredWindowAttributes(unlockButton,RGB(1,2,3),0,LWA_COLORKEY);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
-    SetTimer(h,kSpectrumUpdateTimer,16,nullptr);
+    SetTimer(h,kSpectrumUpdateTimer,33,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
@@ -707,8 +716,13 @@ static const char* movedPosition(void**) {
 }
 static const char* spectrumEnabled(void** a) {
     if(!a||!a[0])return "error";
-    fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
-    return fc_spectrum::available()?"available":"starting-or-disabled";
+    HWND h=fc::hwnd.load();
+    if(!h||!IsWindow(h))return "unavailable";
+    // Fire-and-forget. Capture startup/shutdown (including thread join) must
+    // not block the NCM renderer when play/pause or track state changes.
+    return PostMessageW(h,fc::kSpectrumSwitch,
+        std::strcmp(static_cast<char*>(a[0]),"true")==0 ? TRUE : FALSE,0)
+        ?"queued":"unavailable";
 }
 static const char* spectrumStatus(void**) {
     // Distinguish UI mode switching from WASAPI initialization failure.
