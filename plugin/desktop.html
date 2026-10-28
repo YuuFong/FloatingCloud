@@ -948,8 +948,8 @@ const Core = window.FloatingCloudCore;
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
-  .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
-  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
@@ -1006,7 +1006,13 @@ const Core = window.FloatingCloudCore;
       this.glowActive = false;
     }
     applySettings(s) {
+      const old=this.settings;
+      const glowKeys=['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'];
+      const glowOnly=old && glowKeys.some(key=>old[key]!==s[key]) &&
+        Object.keys(s).every(key=>glowKeys.includes(key)||old[key]===s[key]);
       this.settings = s;
+      this.applyGlowSettings(s);
+      if(glowOnly)return; // preserve live rows and an in-flight roll while editing glow
       this.pairMode = Boolean(s.showTranslation && this.lines.some(line=>String(line?.translation||'').trim()));
       // Use fixed row boxes: font difference is only a visual scale.
       this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
@@ -1022,14 +1028,6 @@ const Core = window.FloatingCloudCore;
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
-      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
-      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
-        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
-      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
-      v.setProperty('--fc-glow-blur',radius+'px');
-      v.setProperty('--fc-glow-wide',radius*2+'px');
-      v.setProperty('--fc-glow-alpha',String(alpha));
-      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
       // TBL's calibrated text-shadow keeps transparency consistent across
       // untranslated, translated and unplayed segments. Legacy stroke/shadow
       // settings remain in config for backward compatibility, not applied in
@@ -1040,13 +1038,25 @@ const Core = window.FloatingCloudCore;
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
-      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
-        this.setGlow(false);
       this.cancelTransition();
       if (this.index !== null) {
         this.draw();
         this.renderScan(Core.lineProgress(this.lines, this.index, this.lastPosition), this.lastPosition, this.scanRows[0]);
       }
+    }
+    applyGlowSettings(s) {
+      const v=this.stage.style;
+      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
+      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
+      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
+        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
+      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-blur',radius+'px');
+      v.setProperty('--fc-glow-wide',radius*2+'px');
+      v.setProperty('--fc-glow-alpha',String(alpha));
+      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
+      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
+        this.setGlow(false);
     }
     setLines(lines) {
       if (this.lines === lines) return;
