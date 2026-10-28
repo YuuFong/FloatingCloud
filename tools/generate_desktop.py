@@ -3,6 +3,7 @@ import re
 p=Path(__file__).resolve().parents[1]/'plugin'
 source=(p/'main.js').read_text(encoding='utf8')
 core=(p/'core.js').read_text(encoding='utf8')
+presentation=(p/'vendor'/'tbl-presentation.js').read_text(encoding='utf8')
 start=source.index('  const styleText = `')
 end=source.index('  plugin.onConfig(() =>',start)
 renderer=source[start:end]
@@ -12,18 +13,20 @@ assert not '</script' in renderer.lower()
 html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
-#root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;position:relative}
+#root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
 #toolbar{position:absolute;left:50%;top:9px;transform:translate(-50%,-6px);display:flex;gap:2px;border:1px solid rgba(255,255,255,.10);border-radius:15px;padding:4px 5px;background:rgba(21,26,34,.90);box-shadow:0 8px 25px #0005;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
-#root.controls-open #toolbar,#toolbar:focus-within{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+#root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+#root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
+#root.settings-open #toolbar{visibility:hidden;pointer-events:none}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:#566986}
-#stage{width:100%;flex:none;min-height:0;overflow:hidden;position:relative;background:transparent!important;border:0;margin:0 auto}
-#stage .fc-track{top:8px}
+#stage{width:100%;position:absolute;top:64px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#stage .fc-track{top:0}
 #stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
-#state{position:absolute;bottom:2px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none}
+#state{position:absolute;top:47px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
 #root.controls-open #state{opacity:.85}
 #stage{cursor:grab}#stage:active{cursor:grabbing}
-#mini-settings{position:absolute;left:50%;top:54px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
+#mini-settings{position:absolute;left:50%;top:7px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
 #mini-settings.open{display:flex;align-items:center;gap:8px}
 #mini-settings button{background:transparent;color:white;border:1px solid #576276;border-radius:5px;padding:3px 8px;cursor:pointer}
 </style></head><body>
@@ -31,23 +34,39 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 <script>
 '''+core+'''
 </script><script>
+'''+presentation+'''
+</script><script>
 (() => {'use strict';
 const Core = window.FloatingCloudCore;
 '''+renderer+'''
 let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
-let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,showingInfo=false;
+let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,showingInfo=false,locked=false;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
-function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
-document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',ev=>{
- ev.stopPropagation();postAction(b.dataset.action);openControls();
-}));
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
-function openControls() {
- root.classList.add('controls-open');postAction('controlsOpen');clearTimeout(controlsTimer);
- controlsTimer=setTimeout(()=>{root.classList.remove('controls-open');document.getElementById('mini-settings').classList.remove('open');postAction('settingsClosed');postAction('controlsClosed');},6500);
+function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
+function hideControls(){
+ clearTimeout(controlsTimer);controlsTimer=null;
+ root.classList.remove('controls-open','settings-open');
+ document.getElementById('mini-settings').classList.remove('open');
+ if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
+ postAction('settingsClosed');postAction('controlsClosed');
 }
+function openControls(){
+ if(locked)return;
+ root.classList.add('controls-open');postAction('controlsOpen');
+ clearTimeout(controlsTimer);
+ controlsTimer=setTimeout(hideControls,3500);
+}
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',ev=>{
+ ev.stopPropagation();postAction(b.dataset.action);
+ if(b.dataset.action==='lock'||b.dataset.action==='close')hideControls();
+ else openControls();
+}));
 document.getElementById('gear').addEventListener('click',ev=>{
- ev.stopPropagation();const open=document.getElementById('mini-settings').classList.toggle('open');postAction(open?'settingsOpen':'settingsClosed');openControls();
+ ev.stopPropagation();
+ const active=document.getElementById('mini-settings').classList.toggle('open');
+ root.classList.toggle('settings-open',active);
+ postAction(active?'settingsOpen':'settingsClosed');openControls();
 });
 document.getElementById('music').addEventListener('click',ev=>{
  ev.stopPropagation();showingInfo=!showingInfo;
@@ -71,10 +90,11 @@ function receive(message){
       if(Number.isFinite(p.positionMs))clock.anchor(p.positionMs, Boolean(p.playing));
       playStatus=Boolean(p.playing);renderPlayState();break;
     }
-    case 'locked':if(message.payload) root.classList.remove('controls-open');break;
-    case 'interaction':if(message.payload?.lyricClick) {root.classList.contains('controls-open')
- ? (root.classList.remove('controls-open'),document.getElementById('mini-settings').classList.remove('open'),postAction('settingsClosed'),postAction('controlsClosed'))
- : openControls();}break;
+    case 'locked':locked=Boolean(message.payload);root.classList.toggle('is-locked',locked);if(locked)hideControls();break;
+    case 'interaction':
+      if(message.payload?.lyricClick&&!locked){
+        if(root.classList.contains('controls-open'))hideControls();else openControls();
+      }break;
   }
 }
 window.chrome?.webview?.addEventListener('message',ev=>receive(ev.data));
