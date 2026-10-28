@@ -81,7 +81,8 @@ test('two lyric rows always share one font size after old config migration',()=>
  const normalized=C.normalizeSettings({fontSize:34,nextFontSize:18,showTranslation:true});
  assert.equal(normalized.fontSize,34);
  assert.equal(Object.hasOwn(normalized,'nextFontSize'),false);
- assert.equal(normalized.showTranslation,false);
+ assert.equal(normalized.showTranslation,true);
+ assert.equal(C.normalizeSettings({showTranslation:false}).showTranslation,false);
 });
 test('Lyricsfile word timestamps use absolute milliseconds',()=>{
  const yaml=[
