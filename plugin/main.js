@@ -93,14 +93,44 @@
       if (!this.title || !this.artist) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
       if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const timer = setTimeout(() => ctrl.abort(), 15500);
       let result=null, lastError='';
       try {
-        // No Netease lyric API: source lookup is independent of the player.
-        // This version uses LRCLIB's TBL-compatible source + verified timestamps.
+        // TaskbarLyrics Core's real QQMusic/QRC, Kugou/KRC, LRCLIB parsers.
+        // The .NET helper is self-contained and launched by native.dll in a
+        // background worker. Netease song metadata is used for matching only.
+        const nativeApi=window.betterncm_native?.native_plugin;
+        if(nativeApi?.call) {
+          try {
+            const request={TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs};
+            if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
+              const limit=performance.now()+12500;
+              while(!ctrl.signal.aborted && performance.now()<limit) {
+                await new Promise(resolve=>setTimeout(resolve,200));
+                const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
+                if(!raw)continue;
+                let response;
+                try {response=JSON.parse(raw);}catch(_){break;}
+                if(response.trackKey!==key)continue;
+                if(response.pureMusic) {this.pureMusic=true;break;}
+                if(Array.isArray(response.lines) && response.lines.length) {
+                  const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
+                    .map(l=>({
+                      time:l.time,duration:Number(l.duration||0),text:l.text,
+                      words:Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
+                        .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[],
+                      kind:l.kind||'lrc'
+                    })).sort((a,b)=>a.time-b.time);
+                  if(lines.length){result={lines,kind:response.kind||'lrc',provider:response.provider||'TBL'};break;}
+                }
+                break;
+              }
+            }
+          }catch(e) {lastError=String(e.message||e);}
+        }
         // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
         // No invented word times: a strict song/artist/duration match is required.
-        if (this.title && this.artist && !ctrl.signal.aborted) {
+        if (!result && !this.pureMusic && this.title && this.artist && !ctrl.signal.aborted) {
           const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
           if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
           const response=await fetch('https://lrclib.net/api/get?'+args,{
@@ -134,7 +164,7 @@
           this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
           this.cache.set(key,result);
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
-        } else this.error = '未找到可信的同步歌词';
+        } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
       } catch(e) {
         if(this.trackKey===key) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
