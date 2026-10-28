@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.30-beta';
+  const VERSION = '0.4.31-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -71,6 +71,7 @@
       this.chorusIntervals = [];
       this.chorusLoaded=false;this.chorusPending=false;this.chorusBusy=false;
       this.generation = 0; this.pendingSong = null; this.songTask = null;
+      this.forceNextLookup=false;
     }
     init() {
       const attach = () => {
@@ -147,7 +148,7 @@
       const timer = setTimeout(() => ctrl.abort(), 15500);
       let result=null, lastError='', autoOffline=false, helperResponded=false, chorusIntervals=[];
       try {
-        // TaskbarLyrics Core's real QQMusic/QRC, Kugou/KRC, LRCLIB parsers.
+        // TBL's coordinator handles Netease IDs, source routing, scoring and caches.
         // The .NET helper is self-contained and launched by native.dll in a
         // background worker. Netease song metadata is used for matching only.
         const nativeApi=window.betterncm_native?.native_plugin;
@@ -163,8 +164,9 @@
               TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
               Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint,
               NcmId:Number.isSafeInteger(id)&&id>0?id:0,
-              ChorusEnabled:false
+              ChorusEnabled:false,ForceRefresh:this.forceNextLookup
             };
+            this.forceNextLookup=false;
             if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
               const limit=performance.now()+12500;
               while(!ctrl.signal.aborted && performance.now()<limit) {
@@ -294,6 +296,7 @@
       const song = this.api?.getCurrentSong?.();
       if (!song) { this.error = '没有可刷新的当前歌曲'; notify(); return; }
       this.cache.delete(this.trackKey);
+      this.forceNextLookup=true;
       this.trackKey = ''; // force new request without requiring a song change
       this.setTrack(song);
     }
@@ -467,6 +470,7 @@
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
+  .fc-stage.fc-rolling{clip-path:inset(32px 0 0 0)}
   .fc-track{position:absolute;top:32px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
@@ -564,7 +568,7 @@
       v.setProperty('--fc-pitch', this.pitch + 'px');
       v.setProperty('--fc-toolbar-gap',s.lineGap+'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
-      v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
+      v.setProperty('--fc-secondary-scale',String((s.fontSize-5)/s.fontSize));
       v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
       const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
@@ -618,6 +622,7 @@
       this.busy = false; this.pending = null;
       this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
+      this.stage.classList.remove('fc-rolling');
       this.rows.forEach(r=>r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving'));
     }
     renderRow(rowIndex, lineIndex, translation=false) {
@@ -666,6 +671,7 @@
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
       this.track.classList.add('fc-no-anim');
+      this.stage.classList.remove('fc-rolling');
       this.track.style.transition='none';
       this.index=nextIndex;
       this.track.style.transform='translate3d(0,0,0)';
@@ -744,6 +750,7 @@
       // A completed row becomes the current row without rebuilding its glyphs.
       this.presentation.beginTransition(plan,{
         start: ctx => {
+          this.stage.classList.add('fc-rolling');
           this.track.style.transition='none';
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
@@ -850,7 +857,7 @@
       ['__section','歌词外观','字体、颜色和桌面浮窗的基本布局'],
       ['enabled','启用预览','checkbox'], ['font','字体','select',Core.FONT_OPTIONS],
       ['fontWeight','字体粗细','select',Core.WEIGHT_OPTIONS],
-      ['fontSize','主行字号（副行小 2px）','range',14,64,1],
+      ['fontSize','主行字号（副行小 5px）','range',14,64,1],
       ['showTranslation','外文歌曲优先显示对应翻译（无翻译时保持双行）','checkbox'],
       ['foregroundMode','歌词前景色','select',[
         {value:'system',label:'跟随系统'},

@@ -61,10 +61,12 @@ test('finishing a roll reuses the incoming row instead of rebuilding its glyphs'
   view.applySettings(Core.normalizeSettings({}));
   const incomingGlyph=view.rows[1].children[0];
   const followingGlyph=view.rows[2].children[0];
+  view.stage.classList.add('fc-rolling');
   view.promote(1,view.generation);
   assert.equal(view.rows[0].children[0],incomingGlyph);
   assert.equal(view.rows[1].children[0],followingGlyph);
   assert.equal(view.rows[0].className,'fc-line fc-line-primary');
+  assert.equal(view.stage.classList.contains('fc-rolling'),false);
 });
 
 test('preview toggle does not disable desktop lyric rendering',()=>{
@@ -81,5 +83,6 @@ test('preview toggle does not disable desktop lyric rendering',()=>{
   view.update(0,0,0,true);
   assert.equal(stage.style.opacity,'1');
   assert.equal(stage.style['--fc-toolbar-gap'],'20px');
+  assert.equal(Number(stage.style['--fc-secondary-scale']),25/30);
   assert.equal(stage.classList.contains('fc-chorus-glow'),true);
 });

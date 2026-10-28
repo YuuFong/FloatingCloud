@@ -1,22 +1,31 @@
-// Uses exactly TaskbarLyrics.Core v1.7.4 sources + Lyricify.Lyrics.Helper.
-// No Netease lyric calls. QQ/Kugou/LRCLIB online, TBL LocalLyricProvider offline.
+// Uses TaskbarLyrics.Core v1.7.4's resolution coordinator and Lyricify sources.
+// Netease song IDs go directly to TBL's Netease source; local files use its provider.
 using System.Text;
 using System.Net.NetworkInformation;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using TaskbarLyrics.Core.Abstractions;
 using TaskbarLyrics.Core.Models;
 using TaskbarLyrics.Core.Services;
 
 record Request(string TrackKey, string Title, string Artist, string Album, double DurationMs,
     string Mode = "online-first", string[]? LocalFolders = null, bool OfflineHint = false,
-    long NcmId = 0, bool ChorusEnabled = false, bool ChorusOnly = false);
+    long NcmId = 0, bool ChorusEnabled = false, bool ChorusOnly = false,
+    bool ForceRefresh = false);
 record ChorusSegment(double startMs, double endMs);
 record WordResult(string text, double start, double duration);
 record LineResult(double time, double duration, string text, string translation, WordResult[] words, string kind);
 record Response(string trackKey, string provider, string kind, bool pureMusic, LineResult[] lines,
     string? error, ChorusSegment[]? chorus = null);
+
+sealed class NoCacheStore<T> : ILyricCacheStore<T> where T : class
+{
+    public bool TryGet(string key,out T? payload,out LyricAcquisitionKind acquisition)
+    { payload=null;acquisition=LyricAcquisitionKind.Unknown;return false; }
+    public void Store(string key,T payload) { }
+    public void Remove(string key) { }
+    public void Clear() { }
+}
 
 static class Program
 {
@@ -50,23 +59,6 @@ static class Program
         }catch(Exception e) when (e is HttpRequestException or OperationCanceledException or
             JsonException or InvalidOperationException or FormatException) { return []; }
     }
-    private static string Norm(string? s) =>
-        Regex.Replace((s ?? "").Normalize(NormalizationForm.FormKC).ToLowerInvariant(),
-            @"[\p{P}\p{S}\s]", "");
-
-    private static bool IsMatching(SourceTrackCandidate c, Request req)
-    {
-        var t = Norm(req.Title);
-        if (t.Length == 0 || Norm(c.Title) != t) return false;
-        var desired = Norm(req.Artist);
-        var artists = c.Artists.Select(Norm).Where(v=>v.Length>0).ToArray();
-        if (desired.Length>0 && !artists.Any(a=>a==desired || a.Contains(desired) || desired.Contains(a)))
-            return false;
-        if (req.DurationMs>1000 && c.Duration.TotalMilliseconds>0 &&
-            Math.Abs(c.Duration.TotalMilliseconds-req.DurationMs)>5000) return false;
-        return true;
-    }
-
     // TBL LocalLyricProvider indexes only explicitly chosen music directories
     // plus the Windows Music known folder. No full-disk scanning.
     static string[] LocalRoots(Request q)
@@ -121,62 +113,46 @@ static class Program
     }
     static async Task<Response?> LookupOnline(Request q, CancellationToken token)
     {
-        var track=new TrackIdentity(q.TrackKey,q.Title,[q.Artist],q.Album,
-            TimeSpan.FromMilliseconds(Math.Max(0,q.DurationMs)),"External",null,[]);
-        var plan=LyricSearchPlanner.CreatePlan(track);
-        ILyricSource[] providers=[new QqMusicLyricSource(),new KugouLyricSource(),new LrcLibLyricSource()];
-        async Task<Response?> TryProvider(ILyricSource provider)
-        {
-            var parser=new LyricifyPayloadParser();
-            var decoder=new LyricifyPayloadDecoder();
-            try {
-                var candidates=(await provider.SearchAsync(plan,token))
-                    .Where(c=>IsMatching(c,q))
-                    .OrderBy(c=>Math.Abs(c.Duration.TotalMilliseconds-q.DurationMs))
-                    .Take(3).ToArray();
-                foreach(var candidate in candidates)
-                {
-                    try {
-                        var raw=await provider.FetchAsync(candidate,token);
-                        if(raw is null)continue;
-                        var decoded=raw.IsEncrypted && decoder.CanDecode(raw.Format)
-                            ? await decoder.DecodeAsync(raw,token)
-                            : new DecodedLyricPayload(raw.ProviderId,raw.CandidateId,raw.Format,
-                                raw.OriginalLyrics,raw.TranslationLyrics,raw.IsPureMusic,raw.Diagnostics);
-                        if(decoded.IsPureMusic)
-                            return new Response(q.TrackKey,provider.ProviderId.Value,"instrumental",true,[],null);
-                        if(!parser.CanParse(decoded.Format))continue;
-                        var parsed=await parser.ParseAsync(decoded,token);
-                        if(parsed.Lines.Count==0||parsed.TimingKind==LyricTimingKind.Unsynced)continue;
-                        var lines=parsed.Lines.Where(x=>!x.IsInformationLine)
-                            .Take(500).Select(line=>new LineResult(
-                                line.StartTime.TotalMilliseconds,
-                                line.EndTime is null?0:Math.Max(0,(line.EndTime.Value-line.StartTime).TotalMilliseconds),
-                                line.Text,line.Translation??string.Empty,
-                                line.Segments.Select(seg=>new WordResult(seg.Text,
-                                    seg.StartTime.TotalMilliseconds,
-                                    (seg.EndTime-seg.StartTime).TotalMilliseconds)).ToArray(),
-                                line.Segments.Count>0?"timed":"lrc")).ToArray();
-                        if(lines.Length>0)return new Response(q.TrackKey,provider.ProviderId.Value,
-                            lines.Any(l=>l.words.Length>0)?"timed":"lrc",false,lines,null);
-                    }catch(OperationCanceledException){throw;}
-                    catch(Exception){ }
-                }
-            }catch(OperationCanceledException){return null;}
-            catch(Exception){ }
-            return null;
-        }
-        // Search all TBL sources together so a slow endpoint does not hold up
-        // a valid result from another source.
-        var pending=providers.Select(TryProvider).ToList();
-        while(pending.Count>0)
-        {
-            var completed=await Task.WhenAny(pending);
-            pending.Remove(completed);
-            var result=await completed;
-            if(result is {pureMusic:true} or {lines.Length:>0})return result;
-        }
-        return null;
+        // Use TBL's complete resolution coordinator: source routing, direct
+        // Netease song ID, scoring, concurrent fallback and persistent caches.
+        var cacheDir=Path.Combine(Environment.GetFolderPath(
+            Environment.SpecialFolder.ApplicationData),"FloatingCloud","database");
+        var cache=q.ForceRefresh
+            ? new LyricPipelineCache(new NoCacheStore<RawLyricCacheEnvelope>(),
+                new NoCacheStore<ParsedLyricCacheEnvelope>())
+            : new LyricPipelineCache(
+                new JsonLyricCacheStore<RawLyricCacheEnvelope>(Path.Combine(cacheDir,"raw-v1.json")),
+                new JsonLyricCacheStore<ParsedLyricCacheEnvelope>(Path.Combine(cacheDir,"parsed-v1.json")));
+        using var resolvedCache=new JsonResolvedLyricCache(Path.Combine(cacheDir,"resolved-v1.json"));
+        ILyricSource[] sources=[new NeteaseLyricSource(),new QqMusicLyricSource(),
+            new KugouLyricSource(),new LrcLibLyricSource()];
+        var order=new[] { KnownLyricProviders.Netease,KnownLyricProviders.QQMusic,
+            KnownLyricProviders.Kugou,KnownLyricProviders.LrcLib };
+        using var coordinator=new LyricResolutionCoordinator(sources,
+            [new LyricifyPayloadDecoder()],[new LyricifyPayloadParser()],cache,
+            resolvedLyricCache:q.ForceRefresh?null:resolvedCache,
+            sourceSelectionResolver:_=>new LyricSourceSelection(order,null));
+        var track=new TrackInfo(q.TrackKey,q.Title,q.Artist,q.Album,
+            q.NcmId>0?"Netease":"External",
+            TimeSpan.FromMilliseconds(Math.Max(0,q.DurationMs)),
+            q.NcmId>0?q.NcmId.ToString():null);
+        var resolved=(await coordinator.ResolveWithResultAsync(track,token)).Lyrics;
+        if(resolved is null)return null;
+        var parsed=resolved.Content;
+        if(parsed.IsPureMusic)
+            return new Response(q.TrackKey,resolved.ProviderId.Value,"instrumental",true,[],null);
+        if(parsed.TimingKind==LyricTimingKind.Unsynced)return null;
+        var lines=parsed.Lines.Where(line=>!line.IsInformationLine).Take(500)
+            .Select(line=>new LineResult(
+                line.StartTime.TotalMilliseconds,
+                line.EndTime is null?0:Math.Max(0,(line.EndTime.Value-line.StartTime).TotalMilliseconds),
+                line.Text,line.Translation??string.Empty,
+                line.Segments.Select(seg=>new WordResult(seg.Text,
+                    seg.StartTime.TotalMilliseconds,
+                    (seg.EndTime-seg.StartTime).TotalMilliseconds)).ToArray(),
+                line.Segments.Count>0?"timed":"lrc")).ToArray();
+        return lines.Length==0?null:new Response(q.TrackKey,resolved.ProviderId.Value,
+            lines.Any(line=>line.words.Length>0)?"timed":"lrc",false,lines,null);
     }
     static async Task<Response> Lookup(Request q)
     {

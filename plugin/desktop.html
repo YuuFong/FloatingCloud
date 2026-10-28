@@ -930,6 +930,7 @@ const Core = window.FloatingCloudCore;
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
+  .fc-stage.fc-rolling{clip-path:inset(32px 0 0 0)}
   .fc-track{position:absolute;top:32px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
@@ -1027,7 +1028,7 @@ const Core = window.FloatingCloudCore;
       v.setProperty('--fc-pitch', this.pitch + 'px');
       v.setProperty('--fc-toolbar-gap',s.lineGap+'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
-      v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
+      v.setProperty('--fc-secondary-scale',String((s.fontSize-5)/s.fontSize));
       v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
       const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
@@ -1081,6 +1082,7 @@ const Core = window.FloatingCloudCore;
       this.busy = false; this.pending = null;
       this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
+      this.stage.classList.remove('fc-rolling');
       this.rows.forEach(r=>r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving'));
     }
     renderRow(rowIndex, lineIndex, translation=false) {
@@ -1129,6 +1131,7 @@ const Core = window.FloatingCloudCore;
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
       this.track.classList.add('fc-no-anim');
+      this.stage.classList.remove('fc-rolling');
       this.track.style.transition='none';
       this.index=nextIndex;
       this.track.style.transform='translate3d(0,0,0)';
@@ -1207,6 +1210,7 @@ const Core = window.FloatingCloudCore;
       // A completed row becomes the current row without rebuilding its glyphs.
       this.presentation.beginTransition(plan,{
         start: ctx => {
+          this.stage.classList.add('fc-rolling');
           this.track.style.transition='none';
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
