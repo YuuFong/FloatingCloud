@@ -117,9 +117,24 @@
           const response=await fetch('https://lrclib.net/api/get?'+args,{
             signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.1 (https://github.com/YuuFong/FloatingCloud)'}});
           if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
-          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),{
-            title:this.title,artist:this.artist,durationMs:this.durationMs});
-          else if(response.status!==404) throw Error('LRCLIB HTTP '+response.status);
+          const meta={title:this.title,artist:this.artist,durationMs:this.durationMs};
+          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),meta);
+          else if(response.status===404) {
+            const searchUrl='https://lrclib.net/api/search?'+new URLSearchParams({
+              track_name:this.title,artist_name:this.artist});
+            const searchResp=await fetch(searchUrl,{signal:ctrl.signal,headers:{
+              'Lrclib-Client':'FloatingCloud/0.4.2 (https://github.com/YuuFong/FloatingCloud)'}});
+            if(searchResp.ok) {
+              const candidates=await searchResp.json();
+              if(Array.isArray(candidates)) {
+                // Never accept title-only matches; prefer word-synced verified records.
+                const matches=candidates.slice(0,25)
+                  .map(r=>Core.parseLrclibRecord(r,meta)).filter(Boolean);
+                matches.sort((a,b)=>Number(b.kind==='lyricsfile')-Number(a.kind==='lyricsfile'));
+                result=matches[0]||null;
+              }
+            } else if(searchResp.status!==404)throw Error('LRCLIB search HTTP '+searchResp.status);
+          } else throw Error('LRCLIB HTTP '+response.status);
         }
         if(this.trackKey!==key || ctrl.signal.aborted) return;
         if(result?.lines?.length) {
