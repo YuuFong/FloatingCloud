@@ -1,0 +1,35 @@
+name: Test FloatingCloud Update Checker
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'plugin/main.js'
+      - 'plugin/manifest.json'
+      - 'plugin/update-check.js'
+      - 'tools/test-update-check.cjs'
+      - '.github/workflows/plugin-update-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugin/main.js'
+      - 'plugin/manifest.json'
+      - 'plugin/update-check.js'
+      - 'tools/test-update-check.cjs'
+      - '.github/workflows/plugin-update-check.yml'
+
+jobs:
+  check-updater:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate plugin scripts
+        run: |
+          node --check plugin/main.js
+          node --check plugin/update-check.js
+      - name: Verify update checker
+        run: node --test tools/test-update-check.cjs
