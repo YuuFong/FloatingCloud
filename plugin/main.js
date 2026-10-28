@@ -199,6 +199,8 @@
       if (!this.enabled)return;
       this.call('settings',[JSON.stringify(s)]);
       this.call('width',[String(Math.round(s.width))]);
+      const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
+      this.call('height',[String(64+pitch*2+8)]);
     }
     tick() {
       if (!this.enabled)return;
