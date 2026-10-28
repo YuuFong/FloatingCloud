@@ -1,0 +1,50 @@
+name: Build FloatingCloud Setup
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/installer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'installer/**'
+      - '.github/workflows/installer.yml'
+  release:
+    types: [published]
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Publish portable self-contained installer
+        shell: pwsh
+        run: |
+          dotnet publish installer/FloatingCloud.Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o dist/installer
+          if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+          Rename-Item dist/installer/FloatingCloud.Setup.exe FloatingCloud-Setup.exe
+          if (!(Test-Path dist/installer/FloatingCloud-Setup.exe)) { throw "Missing Setup EXE" }
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatingCloud-Setup-win-x64
+          path: dist/installer/FloatingCloud-Setup.exe
+          if-no-files-found: error
+      - name: Attach installer to GitHub Release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$env:RELEASE_TAG" "dist/installer/FloatingCloud-Setup.exe" --clobber
