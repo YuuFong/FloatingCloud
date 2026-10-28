@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.31-beta';
+  const VERSION = '0.4.32-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -503,11 +503,13 @@
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
   .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  /* TBL's 0.12em feather, painted through the glyphs without the animated
+     mask-image path that previously stalled some WebView2 hosts. */
+  @supports (-webkit-background-clip:text){
+    .fc-text-highlight{--fc-feather:min(0.12em,var(--fc-progress,0%),calc(100% - var(--fc-progress,0%)));clip-path:none;color:transparent;-webkit-text-fill-color:transparent;background:linear-gradient(to right,var(--fc-color) 0,var(--fc-color) calc(var(--fc-progress,0%) - var(--fc-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-feather)),transparent 100%);background-clip:text;-webkit-background-clip:text}
+  }
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
-  /* Playback-safe renderer: no per-frame mask-image or mask gradients.
-     The clipped scan layer is fully opaque and noticeably brighter than the
-     soft unplayed base. This avoids animated WebView2 GPU masks that may
-     contribute to some systems freezing when playback starts. */
+  /* The word scan uses the same glyph overlay as the line scan. */
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
@@ -638,7 +640,7 @@
       box.append(el('span','fc-text-base',content));
       if(!translation)box.append(el('span','fc-text-highlight',content));
       const words=line?.words||[];
-      const timed=!translation&&words.length&&words.map(w=>w.text).join('').trim()===content.trim();
+      const timed=!translation&&Core.wordScanProgress(line,line?.time??0)!==null;
       this.scanRows[rowIndex]=translation?null:{mode:timed?'yrc':'lrc',node:box,lineIndex};
       r.append(box);
     }

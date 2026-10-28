@@ -296,24 +296,28 @@
     if (!word.duration || word.duration < 1) return 1;
     return clamp((timeMs - word.start) / word.duration, 0, 1);
   }
-  // TaskbarLyrics-style scan position: map each timed syllable to its real
-  // substring span instead of animating an individual DOM element per word.
+  // Match TBL's substring cursor and complete the line after the last
+  // syllable, even when punctuation or unmatched text follows it.
   function wordScanProgress(line, timeMs) {
     if (!line?.text || !Array.isArray(line.words) || !line.words.length) return null;
     const text=line.text, length=text.length;
-    let readCursor=0, scanned=0;
+    let readCursor=0, scanned=0, usable=false, lastEnd=0;
     for (const w of line.words) {
-      if (!w?.text) continue;
+      if (!w?.text || !Number.isFinite(w.start)) continue;
       let offset=text.indexOf(w.text,readCursor);
       if(offset<0) offset=Math.min(readCursor,length);
       const width=Math.min(w.text.length,length-offset);
       if(width<=0) continue;
+      usable=true;
+      lastEnd=w.start+Math.max(0,Number(w.duration)||0);
       if(timeMs<=w.start) break;
       const progress=w.duration>0?clamp((timeMs-w.start)/w.duration,0,1):1;
       scanned=offset+width*progress;
       if(progress<1) break;
       readCursor=offset+width;
     }
+    if(!usable)return null;
+    if(scanned>=readCursor && readCursor>0 && timeMs>=lastEnd)return 1;
     return clamp(scanned/Math.max(1,length),0,1);
   }
 

@@ -86,3 +86,18 @@ test('preview toggle does not disable desktop lyric rendering',()=>{
   assert.equal(Number(stage.style['--fc-secondary-scale']),25/30);
   assert.equal(stage.classList.contains('fc-chorus-glow'),true);
 });
+
+test('timed words remain in word mode when punctuation is absent from tokens',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
+  }},el:()=>new FakeNode(),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const view=new context.RollingView(new FakeNode());
+  view.lines=[{time:0,duration:2000,text:'你好！',words:[{text:'你好',start:0,duration:1000}]}];
+  view.index=0;
+  view.applySettings(Core.normalizeSettings({}));
+  assert.equal(view.scanRows[0].mode,'yrc');
+});

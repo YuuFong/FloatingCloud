@@ -128,6 +128,18 @@ test('TaskbarLyrics-style continuous word scan respects timed syllables',()=>{
  assert.equal(C.wordScanProgress(line,4000),1);
 });
 
+test('word scan tolerates unmatched text and lights the whole line after the final word',()=>{
+ const line={text:'你好，世界！',time:1000,words:[
+   {text:'你好',start:1000,duration:500},
+   {text:'世界',start:2000,duration:500}
+ ]};
+ assert.equal(C.wordScanProgress(line,1250),1/6);
+ assert.equal(C.wordScanProgress(line,1750),2/6);
+ assert.equal(C.wordScanProgress(line,2250),4/6);
+ assert.equal(C.wordScanProgress(line,2500),1);
+ assert.equal(C.wordScanProgress({...line,words:[{text:'',start:1000,duration:500}]},2500),null);
+});
+
 test('Lyricsfile missing word end_ms derives next start or line end',()=>{
   const yaml=[
     'version: "1.0"',
