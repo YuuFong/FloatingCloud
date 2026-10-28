@@ -161,7 +161,7 @@
   class DesktopBridge {
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
-      this.timer = null; this.sentLines = null; this.sentTrack = null;
+      this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -187,7 +187,7 @@
       this.enabled = true;this.call('show');
       this.applySettings(settings);
       this.call('lock', [String(this.locked)]);
-      this.sentTrack=null;this.sentLines=null;
+      this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;
       if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
@@ -197,7 +197,7 @@
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
-      this.call('close');this.message='已关闭桌面浮窗';
+      this.call('spectrumEnabled',['false']);this.spectrumActive=false;this.call('close');this.message='已关闭桌面浮窗';
     }
     unlock() {
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
@@ -208,7 +208,7 @@
       this.call('settings',[JSON.stringify(s)]);
       this.call('width',[String(Math.round(s.width))]);
       const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
-      this.call('height',[String(64+pitch*2+8)]);
+      this.call('height',[String(72+pitch*2+8)]);
     }
     tick() {
       if (!this.enabled)return;
@@ -232,16 +232,23 @@
         else api?.play?.();
       }
       const song=live;
-      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack) {
+      // No random fake spectrum; capture the audio output only while a song
+      // is playing and the selected lyric source found no synchronized text.
+      const shouldSpectrum=Boolean(song?.trackKey && !song?.busy && !song?.lines?.length && song?.clock.isPlaying());
+      if(shouldSpectrum!==this.spectrumActive) {
+        this.spectrumActive=shouldSpectrum;
+        this.call('spectrumEnabled',[String(shouldSpectrum)]);
+      }
+      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack || shouldSpectrum!==this.sentPureMusic) {
         this.sentLines=song?.lines;
-        this.sentTrack=song?.trackKey;
-        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[]})]);
+        this.sentTrack=song?.trackKey;this.sentPureMusic=shouldSpectrum;
+        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[],pureMusic:shouldSpectrum})]);
       }
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
       clearInterval(this.timer);this.timer=null;
-      this.call('shutdown');
+      this.call('spectrumEnabled',['false']);this.call('shutdown');
     }
   }
 
