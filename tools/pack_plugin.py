@@ -8,7 +8,7 @@ if not (plugin/'native.dll').exists():
 assert manifest['native_plugin']=='native.dll'
 assert (plugin/'FloatingCloudLyrics.exe').is_file(), 'Missing self-contained TBL lyric provider executable'
 assert (plugin/'desktop.html').is_file()
-name=root/'FloatingCloud-v0.4.8.plugin'
+name=root/'FloatingCloud-v0.4.9.plugin'
 with zipfile.ZipFile(name,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
     for file in sorted(plugin.rglob('*')):
         if file.is_file() and file.name != 'native.dll.old':
