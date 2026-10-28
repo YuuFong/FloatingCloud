@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
@@ -27,6 +28,9 @@ internal static class SetupEngine
         "https://github.com/apoint123/inflink-rs/releases/download/v3.4.0/InfLink-rs.plugin";
     private const long MaxPluginBytes = 120L * 1024 * 1024;
     private const long MaxExecutableBytes = 40L * 1024 * 1024;
+    // Pinned against official InfLink-rs v3.4.0 GitHub Release asset digest.
+    private const string InfLinkSha256 =
+        "7d0b7b863b072a99b88eb614c788099315e690920889aaca22685d3663661468";
     private static readonly HttpClient Client = new(new HttpClientHandler { AllowAutoRedirect = true })
     {
         Timeout = TimeSpan.FromSeconds(60)
@@ -237,6 +241,14 @@ internal static class SetupEngine
         }
     }
 
+    private static async Task VerifyHashAsync(string path,string expected,CancellationToken ct)
+    {
+        await using var file=File.OpenRead(path);
+        var actual=Convert.ToHexString(await SHA256.HashDataAsync(file,ct));
+        if(!actual.Equals(expected,StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("第三方插件 SHA-256 与官方发布记录不匹配，已拒绝安装");
+    }
+
     internal static async Task RunOfficialInstallerAsync(Action<string> report,CancellationToken ct)
     {
         Directory.CreateDirectory(LocalData);
@@ -321,6 +333,7 @@ internal static class SetupEngine
             {
                 report("检测到未安装 InfLink-rs，正在下载官方 v3.4.0…");
                 await DownloadAsync(InfLinkUrl,tempInf,MaxPluginBytes,ct);
+                await VerifyHashAsync(tempInf,InfLinkSha256,ct);
                 ValidatePayload(tempInf,"inflink");
             }
             else report("检测到 InfLink-rs，保留用户已有版本。");
