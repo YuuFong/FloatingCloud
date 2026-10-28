@@ -22,7 +22,7 @@
 
 ## 频谱：参考 TaskbarLyrics v1.7.4
 
-对照官方 `TaskbarLyrics.App/SystemAudioSpectrumService.cs` 与 `SpectrumTuningSettings.cs`：保留 FC 的 WASAPI loopback + C++ 线程，更新为 2048 点 FFT、默认 32 柱、对数频率 28–4000Hz、TBL 的低频增益、峰值衰减、归一化曲线、上升和下降平滑参数。频谱帧由 Win32 独立的约 33ms 定时器更新，不再跟着 JS 的 100ms 歌词状态循环。音频输出设备变更时每 500ms 检查一次并重连。
+对照官方 `TaskbarLyrics.App/SystemAudioSpectrumService.cs` 与 `SpectrumTuningSettings.cs`：保留 FC 的 WASAPI loopback + C++ 线程，更新为 2048 点 FFT、默认 32 柱、对数频率 28–4000Hz、TBL 的低频增益、峰值衰减、归一化曲线、上升和下降平滑参数。频谱帧由 Win32 独立的约 16ms 定时器更新，不再跟着 JS 的 100ms 歌词状态循环。音频输出设备变更时每 500ms 检查一次并重连。
 
 注意本版**采用 TBL 默认频谱算法及参数**，不是逐文件复制 C# 服务。由于运行环境/渲染框架不同，实际声学表现仍以 Windows 实机测试为准；系统音频录制只在检测到播放中的无歌词/纯音乐时启用，停止后释放采集线程。
 
