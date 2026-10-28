@@ -220,21 +220,47 @@
     return lines.length ? {lines,kind:'lrc',provider:'LRCLIB'} : null;
   }
 
-  // Common music-service placeholder lyrics are not real singing lines.
-  // Keep the match deliberately narrow: an actual song with many lines must
-  // never be turned into a spectrum because one line mentions "纯音乐".
-  function isInstrumentalPlaceholder(line) {
-    const text=String(line?.text||'').normalize('NFKC').trim().toLowerCase()
+  // Music-service instrumental records frequently include technical credits
+  // preceding "纯音乐，请欣赏" (composer/arranger, etc.). They are not sung
+  // lyrics. Detect the WHOLE record, not only exact one-line placeholders.
+  function normalizeNonLyric(text) {
+    return String(text || '').normalize('NFKC').toLowerCase().trim()
       .replace(/[\s,，。！!~～:：·•.()（）\[\]【】_\-–—]/g,'');
-    return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(text);
   }
-  function shouldDisplaySpectrum(lines, pureMusic=false, searching=false, mode='auto') {
+  function isInstrumentalPlaceholder(line) {
+    const t = normalizeNonLyric(line?.text);
+    return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(t);
+  }
+  function isLyricCredit(line) {
+    const t=String(line?.text||'').normalize('NFKC').trim();
+    return /^(?:作曲|作词|编曲|制作人|演奏|演唱|混音|录音|母带|监制|出品|发行|音乐制作|键盘|吉他|钢琴|鼓|贝斯|小提琴|长笛|编制|composer|arranger|producer|performed by|mixed by|mastered by|written by)\s*[:：]\s*\S.{0,180}$/i.test(t);
+  }
+  function isInstrumentalRecord(lines) {
+    if(!Array.isArray(lines)||!lines.length||lines.length>24)return false;
+    // A couple credit lines plus the generic instrumental placeholder should
+    // not suppress spectrum. Without that explicit placeholder or NCM song
+    // metadata, credits alone are insufficient evidence of instrumentality.
+    const meaningful=lines.filter(l=>String(l?.text||'').trim());
+    return meaningful.length>0 &&
+      meaningful.some(isInstrumentalPlaceholder) &&
+      meaningful.every(l=>isInstrumentalPlaceholder(l)||isLyricCredit(l));
+  }
+  function isNcmInstrumental(song) {
+    if(!song || typeof song !== 'object')return false;
+    if(song.nolyric === true || song.noLyric === true || song.instrumental === true ||
+       song.isPureMusic === true)return true;
+    // NetEase song detail "mark" has an instrumental flag (bit 17).
+    // Read as a nonnegative safe integer, never coerce absent fields to zero.
+    const mark=Number(song.mark);
+    return Number.isSafeInteger(mark) && mark>0 && (Math.floor(mark/131072)%2===1);
+  }
+  function shouldDisplaySpectrum(lines, pureMusic=false, searching=false, mode='auto', trackInstrumental=false) {
     if(mode==='lyrics-only')return false;
     if(mode==='force-spectrum')return true;
     if(searching)return false;
-    if(pureMusic)return true;
+    if(pureMusic || trackInstrumental)return true;
     if(!Array.isArray(lines)||lines.length===0)return true;
-    return lines.length<=3 && lines.every(isInstrumentalPlaceholder);
+    return isInstrumentalRecord(lines);
   }
   function resolveIndex(lines, timeMs) {
     if (!lines.length) return -1;
@@ -311,5 +337,5 @@
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
     attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
-    isInstrumentalPlaceholder, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
+    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
 });
