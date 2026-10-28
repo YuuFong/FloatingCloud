@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.24-beta';
+  const VERSION = '0.4.25-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -418,7 +418,7 @@
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
      row, never an opaque drop-shadow/outline that changes apparent opacity. */
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
   /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
      60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
@@ -432,6 +432,8 @@
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
+  .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
@@ -441,8 +443,7 @@
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap;text-shadow:0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 260ms ease}
-  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
+  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   /* Playback-safe renderer: no per-frame mask-image or mask gradients.
      The clipped scan layer is fully opaque and noticeably brighter than the
@@ -497,7 +498,7 @@
       v.setProperty('--fc-pitch', this.pitch + 'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
       v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
-      v.setProperty('--fc-roll-ms',(560/s.animationSpeed)+'ms');
+      v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
       const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
       const palette=Core.lyricPalette(s.foregroundMode,schemeLight);
@@ -505,9 +506,9 @@
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
-      const radius={soft:7,standard:12,bright:18}[s.chorusGlowStyle]||7;
-      const alpha=Math.min(.85,s.chorusGlowIntensity/100*.75*
-        ({soft:.8,standard:1,bright:1.2}[s.chorusGlowStyle]||.8));
+      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
+      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
+        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
       v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
       v.setProperty('--fc-glow-blur',radius+'px');
       v.setProperty('--fc-glow-wide',radius*2+'px');
@@ -662,7 +663,7 @@
       }
       this.busy=true;
       const ticket=++this.generation;
-      const duration=plan.durationMs/this.settings.animationSpeed;
+      const duration=Math.min(plan.durationMs,300)/this.settings.animationSpeed;
       this.renderScan(progress,timeMs,this.scanRows[this.pairMode?2:1]);
       // TBL's coordinator owns the transitionend listener, rAF and fallback.
       // A completed row becomes the current row without rebuilding its glyphs.
