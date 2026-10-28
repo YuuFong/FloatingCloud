@@ -5,17 +5,20 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.20-beta-diag';
+  const VERSION = '0.4.21-beta-diag';
   const DIAG_KEY = 'diagnostic-mode-v1';
-  const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert'];
+  const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
+    'metadata-read-only','timeline-read-only','lyrics-only','http-only'];
   const selectedMode = plugin.getConfig(DIAG_KEY, 'full');
   const diagMode = DIAG_MODES.includes(selectedMode) ? selectedMode : 'full';
   const diag = {
-    preview: !['no-preview','events-only','inert'].includes(diagMode),
+    preview: !['no-preview','events-only','inert','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
     spectrum: diagMode !== 'no-spectrum',
-    window: !['no-window','events-only','inert'].includes(diagMode),
-    nativeLyrics: diagMode !== 'no-native-lyrics',
-    eventsOnly: diagMode === 'events-only',
+    window: !['no-window','events-only','inert','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    nativeLyrics: !['no-native-lyrics','http-only'].includes(diagMode),
+    songMetadata: !['events-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    trackTimeline: !['events-only','metadata-read-only','lyrics-only','http-only'].includes(diagMode),
+    lyricRequests: !['events-only','metadata-read-only','timeline-read-only'].includes(diagMode),
     events: diagMode !== 'inert'
   };
   console.info('[FloatingCloud diagnostic] mode=' + diagMode);
@@ -118,8 +121,10 @@
       // InfLink-rs exposes basic metadata; when available, read NCM's own
       // playing-song "mark" / nolyric without making an external API request.
       let ncmSong=null;
-      try { if (!diag.eventsOnly) {
+      try { if (diag.songMetadata) {
+        if (diagMode === 'metadata-read-only') console.info('[FloatingCloud diagnostic] before getPlayingSong');
         const playing=window.betterncm?.ncm?.getPlayingSong?.();
+        if (diagMode === 'metadata-read-only') console.info('[FloatingCloud diagnostic] after getPlayingSong');
         if(playing && Number(playing.id)===id)ncmSong=playing;
       }} catch(_){}
       this.trackInstrumental=Core.isNcmInstrumental(song)||Core.isNcmInstrumental(ncmSong);
@@ -128,11 +133,13 @@
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
-      try { if (!diag.eventsOnly) {
+      try { if (diag.trackTimeline) {
+        if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] before track timeline');
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
+        if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] after track timeline');
       }} catch (_) { /* ignore */ }
-      if (diag.eventsOnly) { notify(); return; }
+      if (!diag.lyricRequests) { notify(); return; }
       if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
       if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
@@ -679,6 +686,10 @@
       ['no-spectrum','仅关闭频谱采集'],['no-window','仅关闭桌面窗口通信'],
       ['no-native-lyrics','仅关闭 Native 歌词查询'],
       ['events-only','仅保留播放事件监听和基础曲目信息'],
+      ['metadata-read-only','事件 + 仅读网易云歌曲元数据'],
+      ['timeline-read-only','事件 + 仅读 InfLink 曲目时间轴'],
+      ['lyrics-only','事件 + 仅歌词请求（不读网易云曲目状态、不启窗口）'],
+      ['http-only','事件 + 仅在线歌词请求（不调用 Native、不启窗口）'],
       ['inert','仅加载插件，不启动播放监听、窗口或预览']
     ]) { const option=el('option','',label);option.value=value;diagSelect.append(option); }
     diagSelect.value=plugin.getConfig(DIAG_KEY,'full');

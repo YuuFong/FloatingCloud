@@ -49,20 +49,23 @@ test('displayed and packaged versions match manifest', () => {
 
 test('diagnostic modes isolate event and window startup without changing saved preferences', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../plugin/main.js'), 'utf8');
-  for (const mode of ['inert', 'no-window', 'events-only']) {
+  for (const mode of ['inert', 'no-window', 'events-only','metadata-read-only','timeline-read-only','lyrics-only','http-only']) {
     const listeners = new Map(), calls = [], writes = [];
+    const reads = { metadata: 0, timeline: 0 };
     let load;
     const api = {
       addEventListener(name, fn) { listeners.set(name, fn); }, removeEventListener(name) { listeners.delete(name); },
       getCurrentSong() { return { ncmId: 7, songName: 'test' }; },
-      getTimeline() { return { currentTime: 0 }; }, getPlaybackStatus() { return 'Playing'; },
+      getTimeline() { ++reads.timeline; return { currentTime: 0 }; }, getPlaybackStatus() { return 'Playing'; },
     };
     const core = {
       parseNcmLyrics() { return { lines: [] }; }, normalizeSettings(x) { return { lyricsMode: 'local-only', localLyricsFolders: '', ...x }; },
       createClock() { return { anchor() {}, setPlaying() {}, reset() {} }; }, isNcmInstrumental() { return false; },
     };
     const context = {
-      window: { FloatingCloudCore: core, InfLinkApi: api, addEventListener() {}, betterncm_native: { native_plugin: { call(name) { calls.push(name); return 'started'; } } } },
+      window: { FloatingCloudCore: core, InfLinkApi: api, addEventListener() {},
+        betterncm: { ncm: { getPlayingSong() { ++reads.metadata; return null; } } },
+        betterncm_native: { native_plugin: { call(name) { calls.push(name); return 'started'; } } } },
       plugin: {
         getConfig(key, fallback) { return key === 'diagnostic-mode-v1' ? mode : key === 'desktop-visible-v1' ? true : fallback; },
         setConfig(key) { writes.push(key); }, onLoad(fn) { load = fn; }, onConfig() {}, onUnload() {},
@@ -74,12 +77,15 @@ test('diagnostic modes isolate event and window startup without changing saved p
     if (mode === 'inert') assert.equal(listeners.size, 0);
     else assert.equal(listeners.size, 3);
     assert.equal(calls.includes('floatingcloud.open'), false, `${mode} must not start the native host`);
-    if (mode !== 'no-window') assert.equal(calls.length, 0, `${mode} must not start native lyrics`);
+    if (!['no-window','lyrics-only'].includes(mode)) assert.equal(calls.length, 0, `${mode} must not start native lyrics`);
     assert.deepEqual(writes, []);
-    if (mode === 'events-only') {
+    if (['events-only','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(mode)) {
+      const before = { ...reads };
       listeners.get('songChange')({ detail: { ncmId: 8, songName: 'next' } });
       await new Promise(resolve => setTimeout(resolve, 20));
-      assert.equal(calls.length, 0);
+      assert.equal(reads.metadata - before.metadata, mode === 'metadata-read-only' ? 1 : 0);
+      assert.equal(reads.timeline - before.timeline, mode === 'timeline-read-only' ? 1 : 0);
+      if (mode !== 'lyrics-only') assert.equal(calls.length, 0);
     }
   }
 });
