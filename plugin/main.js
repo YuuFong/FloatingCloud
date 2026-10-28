@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.23-beta';
+  const VERSION = '0.4.24-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -43,13 +43,14 @@
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch (e) { console.warn('[FloatingCloud] view update', e); } });
   const setSettings = (patch) => {
-    const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders;
+    const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders,
+      previousGlow=settings.chorusGlowEnabled;
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
     try { desktop?.applySettings(settings); } catch (e) { console.warn(e); }
-    if(previousMode!==settings.lyricsMode ||
+    if(previousGlow!==settings.chorusGlowEnabled || previousMode!==settings.lyricsMode ||
        previousFolders!==settings.localLyricsFolders) live?.refresh();
   };
 
@@ -61,6 +62,7 @@
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
+      this.chorusIntervals = [];
       this.generation = 0; this.pendingSong = null; this.songTask = null;
     }
     init() {
@@ -118,21 +120,24 @@
       this.trackInstrumental=Core.isNcmInstrumental(song);
       this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
       this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
+      this.chorusIntervals=[];
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
       try { if (diag.trackTimeline) {
         if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] before track timeline');
         const current = this.api?.getTimeline();
+        if (!(this.durationMs>0) && Number.isFinite(current?.totalTime))
+          this.durationMs=current.totalTime;
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
         if (diagMode === 'timeline-read-only') console.info('[FloatingCloud diagnostic] after track timeline');
       }} catch (_) { /* ignore */ }
       if (!diag.lyricRequests) { notify(); return; }
       if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic);this.chorusIntervals=saved.chorusIntervals||[]; notify(); return; }
       this.busy = true; notify();
       const timer = setTimeout(() => ctrl.abort(), 15500);
-      let result=null, lastError='', autoOffline=false, helperResponded=false;
+      let result=null, lastError='', autoOffline=false, helperResponded=false, chorusIntervals=[];
       try {
         // TaskbarLyrics Core's real QQMusic/QRC, Kugou/KRC, LRCLIB parsers.
         // The .NET helper is self-contained and launched by native.dll in a
@@ -148,18 +153,22 @@
             const localFolders=[...new Set([ncmRoot,...manualFolders].filter(Boolean))].slice(0,12);
             const request={
               TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
-              Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint
+              Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint,
+              NcmId:Number.isSafeInteger(id)&&id>0?id:0,
+              ChorusEnabled:settings.chorusGlowEnabled && settings.chorusGlowIntensity>0 && !this.trackInstrumental
             };
             if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
               const limit=performance.now()+12500;
               while(!ctrl.signal.aborted && performance.now()<limit) {
                 await new Promise(resolve=>setTimeout(resolve,200));
+                if(this.generation!==generation || ctrl.signal.aborted)return;
                 const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
                 if(!raw)continue;
                 let response;
                 try {response=JSON.parse(raw);}catch(_){break;}
                 if(response.trackKey!==key)continue;
                 helperResponded=true;
+                chorusIntervals=Core.normalizeChorusIntervals(response.chorus,this.durationMs);
                 if(response.error==='offline-no-local-lyrics')autoOffline=true;
                 if(response.pureMusic) {this.pureMusic=true;break;}
                 if(Array.isArray(response.lines) && response.lines.length) {
@@ -214,16 +223,20 @@
           } else throw Error('LRCLIB HTTP '+response.status);
         }
         if(this.generation!==generation || ctrl.signal.aborted) return;
+        this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
         if(result?.lines?.length) {
           this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
-          this.cache.set(key,result);
+          this.cache.set(key,{...result,chorusIntervals:this.chorusIntervals});
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
         } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
       } catch(e) {
         if(this.generation===generation) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
         clearTimeout(timer);
-        if(this.generation===generation) {this.busy=false;notify();}
+        if(this.generation===generation) {
+          this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
+          this.busy=false;notify();
+        }
       }
     }
     refresh() {
@@ -246,7 +259,7 @@
   class DesktopBridge {
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
-      this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;this.sentSearching=null;this.spectrumCapture=false;
+      this.timer = null; this.sentLines = null; this.sentTrack = null;this.sentChorus=null;this.spectrumActive=false;this.sentPureMusic=null;this.sentSearching=null;this.spectrumCapture=false;
       this.widthAdjusting=false;
       this.message = '尚未启用'; this.pingOk = false;
     }
@@ -305,7 +318,7 @@
       // centered resize by jumping to a stale startup coordinate.
       this.call('lock', [String(this.locked)]);
       this.call('show');
-      this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;this.sentSearching=null;
+      this.sentTrack=null;this.sentLines=null;this.sentChorus=null;this.sentPureMusic=null;this.sentSearching=null;
       if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
@@ -371,12 +384,14 @@
       }
       this.spectrumActive=diag.spectrum && shouldSpectrum;
       if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack ||
+          song?.chorusIntervals!==this.sentChorus ||
           shouldSpectrum!==this.sentPureMusic || searching!==this.sentSearching) {
-        this.sentLines=song?.lines;this.sentTrack=song?.trackKey;
+        this.sentLines=song?.lines;this.sentTrack=song?.trackKey;this.sentChorus=song?.chorusIntervals;
         this.sentPureMusic=shouldSpectrum;this.sentSearching=searching;
         this.call('lyrics',[JSON.stringify({
           trackKey:song?.trackKey||'',title:song?.title||'',artist:song?.artist||'',
-          lines:song?.lines||[],pureMusic:shouldSpectrum,searching
+          lines:song?.lines||[],pureMusic:shouldSpectrum,searching,
+          chorus:song?.chorusIntervals||[],durationMs:song?.durationMs||0
         })]);
       }
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
@@ -425,7 +440,8 @@
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap;text-shadow:0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 260ms ease}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   /* Playback-safe renderer: no per-frame mask-image or mask gradients.
      The clipped scan layer is fully opaque and noticeably brighter than the
@@ -469,6 +485,7 @@
       this.timer = null; this.generation = 0; this.lastPosition = 0;
       this.presentation = new window.taskbarLyricsPresentation.PresentationCoordinator();
       this.renderTrackId = 0;
+      this.glowActive = false;
     }
     applySettings(s) {
       this.settings = s;
@@ -487,6 +504,14 @@
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
+      const radius={soft:7,standard:12,bright:18}[s.chorusGlowStyle]||7;
+      const alpha=Math.min(.85,s.chorusGlowIntensity/100*.75*
+        ({soft:.8,standard:1,bright:1.2}[s.chorusGlowStyle]||.8));
+      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-blur',radius+'px');
+      v.setProperty('--fc-glow-wide',radius*2+'px');
+      v.setProperty('--fc-glow-alpha',String(alpha));
+      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
       // TBL's calibrated text-shadow keeps transparency consistent across
       // untranslated, translated and unplayed segments. Legacy stroke/shadow
       // settings remain in config for backward compatibility, not applied in
@@ -497,6 +522,8 @@
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
+      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
+        this.setGlow(false);
       this.cancelTransition();
       if (this.index !== null) {
         this.draw();
@@ -505,6 +532,7 @@
     }
     setLines(lines) {
       if (this.lines === lines) return;
+      this.setGlow(false);
       this.lines = Array.isArray(lines) ? lines : [];
       ++this.renderTrackId;
       this.cancelTransition(); this.index = null;
@@ -556,6 +584,11 @@
       scan.node.style.setProperty('--fc-progress',
         (Math.max(0,Math.min(1,value))*100).toFixed(3) + '%');
     }
+    setGlow(active) {
+      if(this.glowActive===active)return;
+      this.glowActive=active;
+      this.stage.classList.toggle('fc-chorus-glow',active);
+    }
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
@@ -598,7 +631,9 @@
         isPlaying:true
       };
     }
-    update(index, progress, timeMs) {
+    update(index, progress, timeMs, chorusActive=false) {
+      this.setGlow(Boolean(chorusActive && this.settings?.chorusGlowEnabled &&
+        this.settings?.enableWordScan && this.settings?.chorusGlowIntensity>0));
       if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
       this.stage.style.opacity='1'; this.lastPosition=timeMs;
       if (index<0) {index=0;progress=0;}
@@ -756,6 +791,14 @@
       ['width','显示宽度（向左右对称伸缩）','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
       ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
     ];
+    configs.push(
+      ['chorusGlowEnabled','启用高潮歌词辉光（有可靠区间时生效）','checkbox'],
+      ['chorusGlowIntensity','辉光强度','range',0,100,1],
+      ['chorusGlowStyle','辉光范围','select',[
+        {value:'soft',label:'轻柔'},{value:'standard',label:'标准'},{value:'bright',label:'明亮'}
+      ]]
+    );
+    panel.append(el('p','fc-hint','高潮辉光开启后，仅在在线模式下按歌曲 ID 查询网易云副歌起止时间；无可靠区间时不发光。'));
     for (const [key, caption, type, a, b, step] of configs) {
       const label = el('label','fc-control');
       const title = el('span', '', caption);
@@ -876,7 +919,11 @@
         : ((time - demoOrigin) % 14000) + settings.offsetMs;
       const idx = Core.resolveIndex(lines, ms);
       const progress = Core.lyricProgress(lines, idx, ms);
-      rolling.update(idx, progress, ms);
+      const glowActive=showingReal
+        ? Boolean(song?.clock.isPlaying() && !song?.pureMusic && !song?.trackInstrumental &&
+            Core.isChorusActive(song?.chorusIntervals,song?.clock.position()))
+        : Core.isChorusActive([{startMs:3500,endMs:7000}],(time-demoOrigin)%14000);
+      rolling.update(idx, progress, ms, glowActive);
       status.textContent = showingReal
         ? (!song?.api ? '未连接 InfLink-rs：缺少可靠播放时间轴' : song.busy ? `正在获取歌词：${song.title}` : song.error || `正在播放：${song.title || '未知歌曲'} · ${song.provider || '未知来源'} · ${(song.kind === 'yrc' || song.kind === 'lyricsfile') ? '逐词计时' : 'LRC 行级计时'}`)
         : 'YRC 逐词动画演示 · 14 秒循环，无需播放歌曲';

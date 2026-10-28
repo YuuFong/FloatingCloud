@@ -64,7 +64,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 (() => {'use strict';
 const Core = window.FloatingCloudCore;
 '''+renderer+'''
-let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
+let settings=Core.normalizeSettings({}),lines=[],chorusIntervals=[],lastTrackKey='',clock=Core.createClock();
 let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,locked=false,pureMusic=false,searching=false,swapTimer=null;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
@@ -156,6 +156,7 @@ function receive(message){
       const wasSearching=searching;
       lastTrackKey=String(p.trackKey||'');
       searching=Boolean(p.searching);
+      chorusIntervals=Core.normalizeChorusIntervals(p.chorus,Number(p.durationMs)||0);
       lines=searching
         ? [
             {time:0,duration:3600000,text:[p.title,p.artist].filter(Boolean).join(' — ')||'正在识别歌曲',words:[]},
@@ -209,7 +210,9 @@ if(!window.chrome?.webview){
 }
 function raf(){
  const pos=searching?0:clock.position(),index=searching?0:Core.resolveIndex(lines,pos),progress=searching?0:Core.lyricProgress(lines,index,pos);
- view.update(index,progress,pos);
+ const chorusActive=playStatus&&!searching&&!pureMusic&&
+   Core.isChorusActive(chorusIntervals,pos-settings.offsetMs);
+ view.update(index,progress,pos,chorusActive);
  requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);

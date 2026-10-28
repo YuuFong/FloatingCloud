@@ -32,6 +32,7 @@
     spectrumMode: 'auto',
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
     enableWordScan: true,
+    chorusGlowEnabled: false, chorusGlowIntensity: 30, chorusGlowStyle: 'soft',
     lyricsMode: 'online-first',
     localLyricsFolders: ''
   });
@@ -79,6 +80,10 @@
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
       showTranslation: Boolean(v.showTranslation), // original + translation when provided
       enableWordScan: Boolean(v.enableWordScan),
+      chorusGlowEnabled: Boolean(v.chorusGlowEnabled),
+      chorusGlowIntensity: clamp(number(v.chorusGlowIntensity, 30), 0, 100),
+      chorusGlowStyle: ['soft','standard','bright'].includes(v.chorusGlowStyle)
+        ? v.chorusGlowStyle : 'soft',
       lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
         ? v.lyricsMode : 'online-first',
       // Paths are saved only in BetterNCM settings and sent to the local .NET helper.
@@ -321,6 +326,20 @@
     const total = words.reduce((sum, w) => sum + weight(w), 0);
     return clamp(words.reduce((sum, w) => sum + weight(w) * wordProgress(w, timeMs), 0) / Math.max(total, 1), 0, 1);
   }
+  function normalizeChorusIntervals(input, durationMs) {
+    if (!Array.isArray(input) || !Number.isFinite(durationMs) || durationMs <= 0) return [];
+    return input.slice(0, 12).filter(segment => {
+      const start = Number(segment?.startMs), end = Number(segment?.endMs);
+      return Number.isFinite(start) && Number.isFinite(end) && start >= 0 &&
+        end > start && end - start >= 1000 && end - start <= 120000 &&
+        end <= durationMs + 1000;
+    }).map(segment => ({startMs:Number(segment.startMs), endMs:Number(segment.endMs)}))
+      .sort((a,b) => a.startMs - b.startMs);
+  }
+  function isChorusActive(intervals, positionMs) {
+    return Number.isFinite(positionMs) && Array.isArray(intervals) &&
+      intervals.some(segment => positionMs >= segment.startMs && positionMs < segment.endMs);
+  }
   function createClock(now = () => performance.now()) {
     let basePosition = 0, baseStamp = now(), playing = false;
     return {
@@ -342,5 +361,5 @@
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
     attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
-    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
+    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, normalizeChorusIntervals, isChorusActive, createClock };
 });

@@ -266,3 +266,27 @@ test('bar width remains independent of spacing, persists, and clamps to valid va
  assert.equal(C.normalizeSettings({spectrumBarWidth:99}).spectrumBarWidth,12);
  assert.equal(C.normalizeSettings({spectrumBarWidth:'not-a-number'}).spectrumBarWidth,3);
 });
+test('chorus glow is opt-in and settings are bounded without changing existing preferences',()=>{
+ const old=C.normalizeSettings({fontSize:34,enableWordScan:true});
+ assert.equal(old.chorusGlowEnabled,false);
+ assert.equal(old.chorusGlowIntensity,30);
+ assert.equal(old.fontSize,34);
+ assert.equal(C.normalizeSettings({chorusGlowEnabled:true,chorusGlowIntensity:-10}).chorusGlowIntensity,0);
+ assert.equal(C.normalizeSettings({chorusGlowIntensity:200,chorusGlowStyle:'invalid'}).chorusGlowIntensity,100);
+ assert.equal(C.normalizeSettings({chorusGlowStyle:'bright'}).chorusGlowStyle,'bright');
+});
+test('chorus requires a trustworthy bounded start and end',()=>{
+ const intervals=C.normalizeChorusIntervals([
+   {startMs:152916,endMs:178690},
+   {startMs:180000,endMs:180000},
+   {startMs:200000,endMs:280000},
+   {startMs:-100,endMs:10000},
+   {startMs:210000,endMs:400000}
+ ],240000);
+ assert.deepEqual(intervals,[{startMs:152916,endMs:178690}]);
+ assert.equal(C.isChorusActive(intervals,152915),false);
+ assert.equal(C.isChorusActive(intervals,152916),true);
+ assert.equal(C.isChorusActive(intervals,178690),false);
+ assert.deepEqual(C.normalizeChorusIntervals([{startMs:30000}],240000),[]);
+ assert.deepEqual(C.normalizeChorusIntervals([{startMs:1000,endMs:2000}],0),[]);
+});

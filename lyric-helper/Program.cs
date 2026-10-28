@@ -10,13 +10,46 @@ using TaskbarLyrics.Core.Models;
 using TaskbarLyrics.Core.Services;
 
 record Request(string TrackKey, string Title, string Artist, string Album, double DurationMs,
-    string Mode = "online-first", string[]? LocalFolders = null, bool OfflineHint = false);
+    string Mode = "online-first", string[]? LocalFolders = null, bool OfflineHint = false,
+    long NcmId = 0, bool ChorusEnabled = false);
+record ChorusSegment(double startMs, double endMs);
 record WordResult(string text, double start, double duration);
 record LineResult(double time, double duration, string text, string translation, WordResult[] words, string kind);
-record Response(string trackKey, string provider, string kind, bool pureMusic, LineResult[] lines, string? error);
+record Response(string trackKey, string provider, string kind, bool pureMusic, LineResult[] lines,
+    string? error, ChorusSegment[]? chorus = null);
 
 static class Program
 {
+    private static readonly HttpClient ChorusClient = new();
+    // This optional NetEase endpoint returns explicit start/end milliseconds.
+    // Never infer an end from a single marker or query on the NCM UI thread.
+    static async Task<ChorusSegment[]> LookupChorus(Request q, CancellationToken token)
+    {
+        if(!q.ChorusEnabled || q.NcmId<=0 || q.DurationMs<=0 || q.OfflineHint ||
+            q.Mode=="local-only")return [];
+        try {
+            var ids=Uri.EscapeDataString($"[{q.NcmId}]");
+            var json=await ChorusClient.GetStringAsync(
+                $"https://music.163.com/api/song/chorus?ids={ids}",token);
+            using var doc=JsonDocument.Parse(json);
+            var root=doc.RootElement;
+            if(!root.TryGetProperty("code",out var code) || code.GetInt32()!=200 ||
+                !root.TryGetProperty("chorus",out var entries) ||
+                entries.ValueKind!=JsonValueKind.Array)return [];
+            var result=new List<ChorusSegment>();
+            foreach(var entry in entries.EnumerateArray().Take(12)) {
+                if(!entry.TryGetProperty("id",out var songId) || songId.GetInt64()!=q.NcmId ||
+                    !entry.TryGetProperty("startTime",out var startValue) ||
+                    !entry.TryGetProperty("endTime",out var endValue))continue;
+                var start=startValue.GetDouble();var end=endValue.GetDouble();
+                if(double.IsFinite(start) && double.IsFinite(end) && start>=0 &&
+                   end-start>=1000 && end-start<=120000 && end<=q.DurationMs+1000)
+                    result.Add(new ChorusSegment(start,end));
+            }
+            return result.OrderBy(s=>s.startMs).ToArray();
+        }catch(Exception e) when (e is HttpRequestException or OperationCanceledException or
+            JsonException or InvalidOperationException or FormatException) { return []; }
+    }
     private static string Norm(string? s) =>
         Regex.Replace((s ?? "").Normalize(NormalizationForm.FormKC).ToLowerInvariant(),
             @"[\p{P}\p{S}\s]", "");
@@ -184,7 +217,10 @@ static class Program
             var q=JsonSerializer.Deserialize<Request>(input,
                 new JsonSerializerOptions{PropertyNameCaseInsensitive=true});
             if(q is null)return 3;
+            using var chorusTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var chorusTask=LookupChorus(q,chorusTimeout.Token);
             var result=await Lookup(q);
+            result=result with { chorus=await chorusTask };
             await File.WriteAllTextAsync(output,JsonSerializer.Serialize(result),new UTF8Encoding(false));
             return 0;
         }catch(Exception e) {
