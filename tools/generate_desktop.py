@@ -33,11 +33,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #root.width-adjusting #resize-guide{opacity:1}
 #stage{z-index:2;width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
 #stage .fc-track{top:0}
-#stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
-#stage .fc-line-translation,#stage .fc-line-secondary{
-  -webkit-text-stroke:0 transparent!important;
-  filter:drop-shadow(0 1px 2px rgba(0,0,0,.36));
-}
+/* TBL's single text-shadow belongs to all rows; do not override its
+   alpha-based primary/translation/secondary palette with FC's old filter. */
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
 #root.controls-open #state{opacity:.85}
 #stage{cursor:grab}#stage:active{cursor:grabbing}
@@ -52,7 +49,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
  pointer-events:none;opacity:0;transition:opacity 300ms ease}
 #root.pure-music #spectrum{display:flex;opacity:.95}
 #root.pure-music #stage{visibility:hidden}
-#spectrum span{width:3px;min-width:3px;height:5px;background:var(--fc-spectrum-color,#d4d9e5);
+#spectrum span{width:var(--fc-spectrum-bar-width,3px);min-width:var(--fc-spectrum-bar-width,3px);
+ flex:0 0 var(--fc-spectrum-bar-width,3px);height:5px;background:var(--fc-spectrum-color,#d4d9e5);
  border-radius:99px;transform-origin:center bottom;box-shadow:0 1px 3px rgba(0,0,0,.6);
  transition:background 280ms ease,opacity 260ms ease;opacity:.78}
 @media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
@@ -96,15 +94,20 @@ document.getElementById('gear').addEventListener('click',ev=>{
  postAction(active?'settingsOpen':'settingsClosed');openControls();
 });
 const spectrumEl=document.getElementById('spectrum');
-// Keep all 32 columns inside the available WebView width even when the
-// requested gap is wide or the lyrics window is set to its minimum width.
-function applySpectrumGap(){
- const desired=Math.max(0,Number(settings.spectrumGap)||0);
- const limit=Math.max(0,(window.innerWidth-120)/31);
- spectrumEl.style.setProperty('--fc-spectrum-gap',Math.min(desired,limit)+'px');
+// Two independent controls: 32 column widths and 31 gaps. Scale both
+// proportionally only when their sum exceeds the available transparent HWND
+// width, to avoid overflow on a 300px lyric window.
+function applySpectrumGeometry(){
+ const barWidth=Math.max(1,Math.min(12,Number(settings.spectrumBarWidth)||3));
+ const gap=Math.max(0,Math.min(14,Number(settings.spectrumGap)||0));
+ const total=32*barWidth+31*gap;
+ const available=Math.max(1,window.innerWidth-40);
+ const fit=Math.min(1,available/total);
+ spectrumEl.style.setProperty('--fc-spectrum-bar-width',(barWidth*fit).toFixed(3)+'px');
+ spectrumEl.style.setProperty('--fc-spectrum-gap',(gap*fit).toFixed(3)+'px');
 }
-window.addEventListener('resize',applySpectrumGap);
-applySpectrumGap();
+window.addEventListener('resize',applySpectrumGeometry);
+applySpectrumGeometry();
 const spectrumBars=Array.from({length:32},(_,i)=>{
  const bar=document.createElement('span');bar.dataset.index=String(i);spectrumEl.append(bar);return bar;
 });
@@ -127,7 +130,7 @@ function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-line-pitch',Math.ceil(settings.fontSize*1.35+settings.lineGap)+'px');root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-line-pitch',Math.ceil(settings.fontSize*1.35+settings.lineGap)+'px');root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGeometry();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
