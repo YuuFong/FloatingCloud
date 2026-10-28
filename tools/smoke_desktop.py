@@ -7,6 +7,8 @@ assert 'id="drag"' not in html, 'old drag bar still present'
 assert 'id="play-pause"' in html and 'seekForward' in html
 assert 'controlsOpen' in html and 'fontSmaller' in html
 assert 'id="spectrum"' in html and 'spectrumTargets' in html
+assert "正在获取歌词" in html and 'p.searching' in html
+assert 'top:49px' in html and 'top:92px' in html
 assert 'background:rgba(21,26,34,.90)' not in html
 assert html.count('class="fc-stage"')==1
 scripts=re.findall(r'<script>([\s\S]*?)</script>',html)

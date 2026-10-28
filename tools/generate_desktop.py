@@ -14,22 +14,22 @@ html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
 #root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
-#toolbar{position:absolute;left:50%;top:29px;transform:translate(-50%,-4px);display:flex;gap:4px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,-4px);display:flex;gap:4px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
 #root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
-#stage{width:100%;position:absolute;top:72px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#stage{width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
 #stage .fc-track{top:0}
 #stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
 #root.controls-open #state{opacity:.85}
 #stage{cursor:grab}#stage:active{cursor:grabbing}
-#mini-settings{position:absolute;left:50%;top:26px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
+#mini-settings{position:absolute;left:50%;top:46px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
 #mini-settings.open{display:flex;align-items:center;gap:8px}
 #mini-settings button{background:transparent;color:white;border:0;border-radius:0;padding:3px 8px;cursor:pointer}
-#spectrum{width:100%;position:absolute;top:72px;left:0;right:0;bottom:0;display:none;
+#spectrum{width:100%;position:absolute;top:92px;left:0;right:0;bottom:0;display:none;
  align-items:center;justify-content:center;gap:3px;pointer-events:none;opacity:0;transition:opacity 300ms ease}
 #root.pure-music #spectrum{display:flex;opacity:.95}
 #root.pure-music #stage{visibility:hidden}
@@ -48,7 +48,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 const Core = window.FloatingCloudCore;
 '''+renderer+'''
 let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
-let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,showingInfo=false,locked=false,pureMusic=false;
+let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,showingInfo=false,locked=false,pureMusic=false,searching=false,swapTimer=null;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
@@ -107,10 +107,30 @@ function receive(message){
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
-      lastTrackKey=String(p.trackKey||'');lines=Array.isArray(p.lines)?p.lines.slice(0,300):[];
-      pureMusic=Boolean(p.pureMusic);
+      const wasSearching=searching;
+      lastTrackKey=String(p.trackKey||'');
+      searching=Boolean(p.searching);
+      lines=searching
+        ? [
+            {time:0,duration:3600000,text:[p.title,p.artist].filter(Boolean).join(' — ')||'正在识别歌曲',words:[]},
+            {time:3600000,duration:3600000,text:'正在获取歌词…',words:[]}
+          ]
+        : Array.isArray(p.lines)?p.lines.slice(0,300):[];
+      pureMusic=Boolean(p.pureMusic)&&!searching;
       root.classList.toggle('pure-music',pureMusic);
-      view.setLines(lines);view.applySettings(settings);
+      if(wasSearching && !searching && !pureMusic && lines.length) {
+        stage.style.transition='opacity 170ms ease';
+        stage.style.opacity='0.12';
+        clearTimeout(swapTimer);
+        swapTimer=setTimeout(()=>{
+          view.setLines(lines);view.applySettings(settings);
+          stage.style.opacity='1';
+        },170);
+      } else {
+        clearTimeout(swapTimer);
+        stage.style.opacity='1';
+        view.setLines(lines);view.applySettings(settings);
+      }
       setMessage(p.title||'');break;
     }
     case 'timeline':{
@@ -138,7 +158,7 @@ if(!window.chrome?.webview){
  view.setLines(lines);view.applySettings(settings);clock.anchor(0,true);playStatus=true;renderPlayState();setMessage('浏览器演示模式');
 }
 function raf(){
- const pos=clock.position(),index=Core.resolveIndex(lines,pos),progress=Core.lyricProgress(lines,index,pos);
+ const pos=searching?0:clock.position(),index=searching?0:Core.resolveIndex(lines,pos),progress=searching?0:Core.lyricProgress(lines,index,pos);
  view.update(index,progress,pos);
  requestAnimationFrame(raf);
 }
