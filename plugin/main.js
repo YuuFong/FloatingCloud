@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.37';
+  const VERSION = '0.4.38';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -465,6 +465,12 @@
   .fc-panel *{box-sizing:border-box}
   .fc-intro{opacity:.78;line-height:1.65;margin:7px 0 18px;font-size:13px}
   .fc-tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0}
+  .fc-update{margin:8px 0 16px;padding:13px 15px;border:1px solid #3c4960;border-radius:10px;background:rgba(30,40,58,.55)}
+  .fc-update-title{font-weight:700;font-size:14px;margin-bottom:5px}
+  .fc-update-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:9px}
+  .fc-update-link{text-decoration:none;display:inline-block}
+  .fc-update-link[hidden]{display:none!important}
+  .fc-btn:disabled{cursor:wait;opacity:.6}
   .fc-btn{cursor:pointer;background:#34465f;border:1px solid #59718e;border-radius:8px;color:#fff;padding:7px 12px;font:inherit;font-size:13px}
   .fc-btn:focus-visible,.fc-control input:focus-visible,.fc-control select:focus-visible{outline:2px solid #81abef}
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
@@ -821,6 +827,72 @@
     diagLabel.append(diagSelect);advanced.append(diagLabel);
     advanced.append(el('p','fc-hint','当前生效：'+diagMode+'。切换后完整退出并重启网易云。'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
+    // Update checks only run when settings are opened (at most once per day),
+    // or when explicitly requested by the user. Never hot-replace native.dll.
+    const updater = window.FloatingCloudUpdater;
+    const updateArea = el('section', 'fc-update');
+    updateArea.append(el('div','fc-update-title','插件版本与更新'));
+    const updateStatus = el('div','fc-status','当前版本 v'+VERSION+' · 尚未检查更新');
+    updateStatus.setAttribute('role','status');
+    updateStatus.setAttribute('aria-live','polite');
+    updateArea.append(updateStatus);
+    const updateActions = el('div','fc-update-actions');
+    const updateButton = el('button','fc-btn','检查更新'); updateButton.type='button';
+    const releaseLink = el('a','fc-btn fc-update-link','查看新版本');
+    releaseLink.href='https://github.com/YuuFong/FloatingCloud/releases';
+    releaseLink.target='_blank'; releaseLink.rel='noopener noreferrer';
+    releaseLink.hidden=true;
+    updateActions.append(updateButton,releaseLink);updateArea.append(updateActions);
+    panel.append(updateArea);
+    const updateKey='update-check-v1', day=24*60*60*1000;
+    const presentResult=(result)=>{
+      releaseLink.hidden=true;
+      if(result.updateAvailable){
+        updateStatus.textContent='当前 v'+VERSION+' · 发现新版本 v'+result.latestVersion+
+          (result.hasPlugin?'，可以下载安装':'，发布包暂未就绪');
+        releaseLink.textContent=result.hasPlugin?'前往下载':'查看发布页';
+        releaseLink.hidden=false;
+      } else if(result.aheadOfRelease) {
+        updateStatus.textContent='当前 v'+VERSION+' · 高于 GitHub 最新正式版 v'+result.latestVersion+'（尚未发布）';
+      } else {
+        updateStatus.textContent='当前 v'+VERSION+' · 已是最新正式版';
+      }
+    };
+    let checking=false;
+    const checkUpdates=async()=>{
+      if(checking)return;
+      if(!updater){
+        updateStatus.textContent='版本检查组件未加载，请重新安装完整插件包';
+        return;
+      }
+      checking=true;updateButton.disabled=true;
+      updateStatus.textContent='正在连接 GitHub 检查更新…';
+      releaseLink.hidden=true;
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),10000);
+      try{
+        const result=await updater.checkLatest(VERSION,fetch,{signal:controller.signal});
+        if(!panel.isConnected)return;
+        presentResult(result);
+        plugin.setConfig(updateKey,{...result,checkedAt:Date.now()});
+      }catch(error){
+        if(!panel.isConnected)return;
+        updateStatus.textContent='检查失败：'+(error?.name==='AbortError'
+          ? '连接超时，请稍后再试' : (error?.message||'网络请求失败'));
+      }finally{
+        clearTimeout(timeout);checking=false;updateButton.disabled=false;
+      }
+    };
+    updateButton.addEventListener('click',checkUpdates);
+    const previousCheck=plugin.getConfig(updateKey,null);
+    if(previousCheck?.currentVersion===VERSION && Number.isFinite(previousCheck.checkedAt) &&
+       Date.now()-previousCheck.checkedAt>=0 && Date.now()-previousCheck.checkedAt<day &&
+       typeof previousCheck.latestVersion==='string' && typeof previousCheck.updateAvailable==='boolean'){
+      presentResult(previousCheck);
+    }else {
+      // Defer the optional network check; never interrupt lyrics initialization.
+      setTimeout(()=>{if(panel.isConnected)void checkUpdates();},0);
+    }
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
     const status = el('div', 'fc-status', '预览模式'); demoWrap.append(status);
