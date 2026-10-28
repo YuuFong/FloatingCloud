@@ -14,7 +14,7 @@ html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
 #root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
-#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,-4px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:calc(100% - 24px);max-width:680px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:calc(100% - 24px);max-width:680px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
 #root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
@@ -33,7 +33,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #mini-settings.open{display:flex;align-items:center;gap:8px}
 #mini-settings button{background:transparent;color:white;border:0;border-radius:0;padding:3px 8px;cursor:pointer}
 #spectrum{width:100%;position:absolute;top:92px;left:0;right:0;bottom:0;display:none;
- align-items:center;justify-content:center;gap:3px;pointer-events:none;opacity:0;transition:opacity 300ms ease}
+ align-items:center;justify-content:center;gap:var(--fc-spectrum-gap,3px);pointer-events:none;opacity:0;transition:opacity 300ms ease}
 #root.pure-music #spectrum{display:flex;opacity:.95}
 #root.pure-music #stage{visibility:hidden}
 #spectrum span{width:3px;min-width:3px;height:5px;background:var(--fc-spectrum-color,#d4d9e5);
@@ -80,6 +80,15 @@ document.getElementById('gear').addEventListener('click',ev=>{
  postAction(active?'settingsOpen':'settingsClosed');openControls();
 });
 const spectrumEl=document.getElementById('spectrum');
+// Keep all 32 columns inside the available WebView width even when the
+// requested gap is wide or the lyrics window is set to its minimum width.
+function applySpectrumGap(){
+ const desired=Math.max(0,Number(settings.spectrumGap)||0);
+ const limit=Math.max(0,(window.innerWidth-120)/31);
+ spectrumEl.style.setProperty('--fc-spectrum-gap',Math.min(desired,limit)+'px');
+}
+window.addEventListener('resize',applySpectrumGap);
+applySpectrumGap();
 const spectrumBars=Array.from({length:32},(_,i)=>{
  const bar=document.createElement('span');bar.dataset.index=String(i);spectrumEl.append(bar);return bar;
 });
@@ -102,7 +111,7 @@ function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-spectrum-color',settings.color);break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-spectrum-color',settings.color);applySpectrumGap();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
