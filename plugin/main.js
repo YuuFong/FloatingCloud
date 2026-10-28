@@ -696,6 +696,10 @@
         const val = type === 'checkbox' ? input.checked : (type === 'range' || key === 'fontWeight') ? Number(input.value) : input.value;
         if(key==='width' && desktop)desktop.widthAdjusting=true;
         setSettings({ [key]: val });
+        // The preview/settings state is normalized synchronously, but the
+        // numeric <small> label used to refresh only when the panel reopened.
+        // Keep it in sync on EVERY input event, including during a drag.
+        sync();
       });
       if(key==='width'){
         let guideTimeout=null;
