@@ -44,11 +44,13 @@
     const latestVersion = String(data.tag_name || '').trim();
     const comparison = compareVersions(latestVersion, currentVersion);
     if (comparison === null) throw new Error('发布版本号格式无法识别');
+    const assetName = 'FloatingCloud-v' + latestVersion.replace(/^v/i, '') + '.plugin';
     const asset = Array.isArray(data.assets) && data.assets.some(a =>
-      /^FloatingCloud-v\d+\.\d+\.\d+\.plugin$/i.test(String(a?.name || '')));
+      String(a?.name || '').toLowerCase() === assetName.toLowerCase());
     return {
       currentVersion, latestVersion: latestVersion.replace(/^v/i, ''),
       updateAvailable: comparison > 0,
+      aheadOfRelease: comparison < 0,
       hasPlugin: Boolean(asset),
       releasesUrl: RELEASES_URL
     };
