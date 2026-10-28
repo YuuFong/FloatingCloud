@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FloatingCloudHost VERSION 0.4.2 LANGUAGES CXX)
+project(FloatingCloudHost VERSION 0.4.3 LANGUAGES CXX)
 if(NOT WIN32)
   message(FATAL_ERROR "FloatingCloud native host must be built on Windows x64")
 endif()
@@ -12,11 +12,11 @@ set(WEBVIEW2_SDK_ROOT "" CACHE PATH "Path to Microsoft.Web.WebView2 NuGet packag
 if(NOT EXISTS "${WEBVIEW2_SDK_ROOT}/build/native/include/WebView2.h")
   message(FATAL_ERROR "Set WEBVIEW2_SDK_ROOT to extracted NuGet Microsoft.Web.WebView2 package")
 endif()
-add_library(floatingcloud_host SHARED floatingcloud.cpp)
+add_library(floatingcloud_host SHARED floatingcloud.cpp spectrum.cpp)
 target_include_directories(floatingcloud_host PRIVATE "${WEBVIEW2_SDK_ROOT}/build/native/include")
 target_link_libraries(floatingcloud_host PRIVATE
   "${WEBVIEW2_SDK_ROOT}/build/native/x64/WebView2LoaderStatic.lib"
-  d3d11 dcomp dxgi ole32 user32 gdi32)
+  d3d11 dcomp dxgi ole32 user32 gdi32 uuid)
 set_target_properties(floatingcloud_host PROPERTIES OUTPUT_NAME native PREFIX "")
 target_compile_definitions(floatingcloud_host PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 if(MSVC)
