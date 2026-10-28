@@ -18,11 +18,13 @@ test('valid published release and plugin package', () => {
     assets:[{ name:'FloatingCloud-v0.4.39.plugin' }] };
   assert.deepEqual(updater.evaluateRelease('0.4.38',release), {
     currentVersion:'0.4.38',latestVersion:'0.4.39',
-    updateAvailable:true,hasPlugin:true,releasesUrl:updater.RELEASES_URL
+    updateAvailable:true,aheadOfRelease:false,hasPlugin:true,releasesUrl:updater.RELEASES_URL
   });
   assert.equal(updater.evaluateRelease('0.4.39',release).updateAvailable,false);
   assert.equal(updater.evaluateRelease('0.4.40',release).updateAvailable,false);
+  assert.equal(updater.evaluateRelease('0.4.40',release).aheadOfRelease,true);
   assert.equal(updater.evaluateRelease('0.4.38',{...release,assets:[]}).hasPlugin,false);
+  assert.equal(updater.evaluateRelease('0.4.38',{...release,assets:[{name:'FloatingCloud-v0.4.40.plugin'}]}).hasPlugin,false);
   assert.throws(()=>updater.evaluateRelease('0.4.38',{...release,prerelease:true}));
 });
 
