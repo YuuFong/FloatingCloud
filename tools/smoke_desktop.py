@@ -16,6 +16,12 @@ assert 'background:rgba(16,20,30,.58)' in html, 'dark translucent width guide mi
 assert "classList.toggle('width-adjusting'" in html, 'width guide must respond to setting payload'
 assert 'fc-line-translation{color:var(--fc-translation);opacity:1' in html, 'translation should use dedicated alpha hierarchy'
 assert 'lyricPalette(settings.foregroundMode' in html, 'theme-derived lyric palette missing'
+assert 'top:calc(92px + var(--fc-line-pitch,53px) - 9px)' in html, 'spectrum center must align just above lyric-row midpoint'
+assert "bar.style.height=Math.round(8+value*62)+'px'" in html, 'spectrum height increase missing'
+assert "root.style.setProperty('--fc-line-pitch'" in html, 'spectrum center must update with lyric line pitch'
+assert '#stage .fc-line-translation,#stage .fc-line-secondary{' in html, 'TBL translation and next-line low shadow override missing'
+assert '-webkit-text-stroke:0 transparent!important' in html, 'translation text should have no opaque stroke'
+
 assert "length:32" in html, 'TaskbarLyrics 32-band renderer is missing'
 assert 'controlsOpen' in html and 'fontSmaller' in html
 assert 'id="spectrum"' in html and 'spectrumTargets' in html
