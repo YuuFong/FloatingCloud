@@ -5,20 +5,19 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.21-beta-diag';
+  const VERSION = '0.4.22-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
-    'metadata-read-only','timeline-read-only','lyrics-only','http-only'];
+    'timeline-read-only','lyrics-only','http-only'];
   const selectedMode = plugin.getConfig(DIAG_KEY, 'full');
   const diagMode = DIAG_MODES.includes(selectedMode) ? selectedMode : 'full';
   const diag = {
-    preview: !['no-preview','events-only','inert','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    preview: !['no-preview','events-only','inert','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
     spectrum: diagMode !== 'no-spectrum',
-    window: !['no-window','events-only','inert','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
+    window: !['no-window','events-only','inert','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
     nativeLyrics: !['no-native-lyrics','http-only'].includes(diagMode),
-    songMetadata: !['events-only','timeline-read-only','lyrics-only','http-only'].includes(diagMode),
-    trackTimeline: !['events-only','metadata-read-only','lyrics-only','http-only'].includes(diagMode),
-    lyricRequests: !['events-only','metadata-read-only','timeline-read-only'].includes(diagMode),
+    trackTimeline: !['events-only','lyrics-only','http-only'].includes(diagMode),
+    lyricRequests: !['events-only','timeline-read-only'].includes(diagMode),
     events: diagMode !== 'inert'
   };
   console.info('[FloatingCloud diagnostic] mode=' + diagMode);
@@ -85,11 +84,7 @@
         }
         if (++this.attempts >= 24) {
           clearInterval(this.retry); this.retry = null;
-          // Minimal metadata-only fallback: not a reliable lyric timeline.
-          try {
-            const song = window.betterncm?.ncm?.getPlayingSong?.();
-            if (song?.id) this.setTrack({ ncmId: song.id, songName: song.name ?? '', authorName: '' });
-          } catch (_) { /* unavailable */ }
+          this.error = 'InfLink-rs 不可用：无法读取可靠的播放状态';
           notify();
         }
       };
@@ -118,16 +113,9 @@
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
       this.durationMs = Number(song?.duration ?? 0);
-      // InfLink-rs exposes basic metadata; when available, read NCM's own
-      // playing-song "mark" / nolyric without making an external API request.
-      let ncmSong=null;
-      try { if (diag.songMetadata) {
-        if (diagMode === 'metadata-read-only') console.info('[FloatingCloud diagnostic] before getPlayingSong');
-        const playing=window.betterncm?.ncm?.getPlayingSong?.();
-        if (diagMode === 'metadata-read-only') console.info('[FloatingCloud diagnostic] after getPlayingSong');
-        if(playing && Number(playing.id)===id)ncmSong=playing;
-      }} catch(_){}
-      this.trackInstrumental=Core.isNcmInstrumental(song)||Core.isNcmInstrumental(ncmSong);
+      // The isolated NCM getPlayingSong() call hangs the host renderer on
+      // playlist selection. Use the InfLink event payload and lyric result.
+      this.trackInstrumental=Core.isNcmInstrumental(song);
       this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
       this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.cancel?.abort();
@@ -686,13 +674,12 @@
       ['no-spectrum','仅关闭频谱采集'],['no-window','仅关闭桌面窗口通信'],
       ['no-native-lyrics','仅关闭 Native 歌词查询'],
       ['events-only','仅保留播放事件监听和基础曲目信息'],
-      ['metadata-read-only','事件 + 仅读网易云歌曲元数据'],
       ['timeline-read-only','事件 + 仅读 InfLink 曲目时间轴'],
       ['lyrics-only','事件 + 仅歌词请求（不读网易云曲目状态、不启窗口）'],
       ['http-only','事件 + 仅在线歌词请求（不调用 Native、不启窗口）'],
       ['inert','仅加载插件，不启动播放监听、窗口或预览']
     ]) { const option=el('option','',label);option.value=value;diagSelect.append(option); }
-    diagSelect.value=plugin.getConfig(DIAG_KEY,'full');
+    diagSelect.value=diagMode;
     diagSelect.addEventListener('change',()=>plugin.setConfig(DIAG_KEY,diagSelect.value));
     diagLabel.append(diagSelect);panel.append(diagLabel);
     panel.append(el('p','fc-hint','当前生效：'+diagMode+'。每次仅测试一个模式；切换后完整退出并重启网易云。此设置独立保存，不改动原有歌词偏好。'));

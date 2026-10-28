@@ -8,6 +8,7 @@ test('song-change dispatch does not synchronously reenter the player', async () 
   const listeners = new Map();
   let dispatching = false;
   let reentered = false;
+  let ncmReads = 0;
   let current = { ncmId: 1, songName: 'first' };
   const api = {
     addEventListener(name, fn) { listeners.set(name, fn); },
@@ -23,7 +24,7 @@ test('song-change dispatch does not synchronously reenter the player', async () 
     createClock() { return clock; }, isNcmInstrumental() { return false; },
   };
   const context = {
-    window: { FloatingCloudCore: core, InfLinkApi: api, addEventListener() {}, betterncm: { ncm: { getPlayingSong() { if (dispatching) reentered = true; return null; } } } },
+    window: { FloatingCloudCore: core, InfLinkApi: api, addEventListener() {}, betterncm: { ncm: { getPlayingSong() { ++ncmReads; if (dispatching) reentered = true; return null; } } } },
     plugin: { getConfig(_key, fallback) { return fallback; }, setConfig() {}, onLoad(fn) { onLoad = fn; }, onConfig() {}, onUnload() {} },
     AbortController, setTimeout, clearTimeout, setInterval, clearInterval, performance, navigator: { onLine: false }, console,
   };
@@ -38,18 +39,20 @@ test('song-change dispatch does not synchronously reenter the player', async () 
   assert.equal(reentered, false);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(reentered, false);
+  assert.equal(ncmReads, 0, 'NCM getPlayingSong must never run on the host renderer');
 });
 
 test('displayed and packaged versions match manifest', () => {
   const root = path.join(__dirname, '..');
   const version = JSON.parse(fs.readFileSync(path.join(root, 'plugin/manifest.json'))).version;
   assert.match(fs.readFileSync(path.join(root, 'plugin/main.js'), 'utf8'), new RegExp(`VERSION = '${version}'`));
+  assert.doesNotMatch(fs.readFileSync(path.join(root, 'plugin/main.js'), 'utf8'), /\.getPlayingSong/);
   assert.match(fs.readFileSync(path.join(root, '.github/workflows/windows-build.yml'), 'utf8'), new RegExp(`FloatingCloud-v${version}\\.plugin`));
 });
 
 test('diagnostic modes isolate event and window startup without changing saved preferences', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../plugin/main.js'), 'utf8');
-  for (const mode of ['inert', 'no-window', 'events-only','metadata-read-only','timeline-read-only','lyrics-only','http-only']) {
+  for (const mode of ['inert', 'no-window', 'events-only','timeline-read-only','lyrics-only','http-only']) {
     const listeners = new Map(), calls = [], writes = [];
     const reads = { metadata: 0, timeline: 0 };
     let load;
@@ -79,11 +82,11 @@ test('diagnostic modes isolate event and window startup without changing saved p
     assert.equal(calls.includes('floatingcloud.open'), false, `${mode} must not start the native host`);
     if (!['no-window','lyrics-only'].includes(mode)) assert.equal(calls.length, 0, `${mode} must not start native lyrics`);
     assert.deepEqual(writes, []);
-    if (['events-only','metadata-read-only','timeline-read-only','lyrics-only','http-only'].includes(mode)) {
+    if (['events-only','timeline-read-only','lyrics-only','http-only'].includes(mode)) {
       const before = { ...reads };
       listeners.get('songChange')({ detail: { ncmId: 8, songName: 'next' } });
       await new Promise(resolve => setTimeout(resolve, 20));
-      assert.equal(reads.metadata - before.metadata, mode === 'metadata-read-only' ? 1 : 0);
+      assert.equal(reads.metadata - before.metadata, 0);
       assert.equal(reads.timeline - before.timeline, mode === 'timeline-read-only' ? 1 : 0);
       if (mode !== 'lyrics-only') assert.equal(calls.length, 0);
     }
