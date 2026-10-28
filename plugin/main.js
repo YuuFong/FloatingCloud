@@ -77,7 +77,7 @@
     }
     async setTrack(song) {
       const id = Number(song?.ncmId ?? song?.id);
-      const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}`;
+      const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}:${String(song?.songName || song?.name || '')}:${String(song?.authorName || song?.artist || '')}`;
       if (key === this.trackKey) return;
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
@@ -191,7 +191,7 @@
   class DesktopBridge {
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
-      this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;
+      this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;this.sentSearching=null;this.spectrumCapture=false;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -217,7 +217,7 @@
       this.enabled = true;this.call('show');
       this.applySettings(settings);
       this.call('lock', [String(this.locked)]);
-      this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;
+      this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;this.sentSearching=null;
       if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
@@ -227,7 +227,7 @@
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
-      this.call('spectrumEnabled',['false']);this.spectrumActive=false;this.call('close');this.message='已关闭桌面浮窗';
+      this.call('spectrumEnabled',['false']);this.spectrumActive=false;this.spectrumCapture=false;this.call('close');this.message='已关闭桌面浮窗';
     }
     unlock() {
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
@@ -245,6 +245,7 @@
       const action = this.call('poll');
       if (action === 'close') {this.disable();return;}
       if (action === 'lock') {this.locked=true;plugin.setConfig('desktop-locked-v1',true);}
+      if (action === 'unlock') {this.unlock();}
       const api=live?.api;
       if (action === 'previous') api?.previous?.();
       else if (action === 'next') api?.next?.();
@@ -262,23 +263,31 @@
         else api?.play?.();
       }
       const song=live;
-      // No random fake spectrum; capture the audio output only while a song
-      // is playing and the selected lyric source found no synchronized text.
-      const shouldSpectrum=Boolean(song?.trackKey && !song?.busy && !song?.lines?.length && song?.clock.isPlaying());
-      if(shouldSpectrum!==this.spectrumActive) {
-        this.spectrumActive=shouldSpectrum;
-        this.call('spectrumEnabled',[String(shouldSpectrum)]);
+      // Searching and no lyrics are different states. No spectrum until
+      // providers finish; do not gate the spectrum UI on playback status.
+      const searching=Boolean(song?.trackKey && song?.busy);
+      const shouldSpectrum=Boolean(song?.trackKey && !searching &&
+        (song?.pureMusic || !song?.lines?.length));
+      const shouldCapture=shouldSpectrum && Boolean(song?.clock.isPlaying());
+      if(shouldCapture!==this.spectrumCapture) {
+        this.spectrumCapture=shouldCapture;
+        this.call('spectrumEnabled',[String(shouldCapture)]);
       }
-      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack || shouldSpectrum!==this.sentPureMusic) {
-        this.sentLines=song?.lines;
-        this.sentTrack=song?.trackKey;this.sentPureMusic=shouldSpectrum;
-        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[],pureMusic:shouldSpectrum})]);
+      this.spectrumActive=shouldSpectrum;
+      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack ||
+          shouldSpectrum!==this.sentPureMusic || searching!==this.sentSearching) {
+        this.sentLines=song?.lines;this.sentTrack=song?.trackKey;
+        this.sentPureMusic=shouldSpectrum;this.sentSearching=searching;
+        this.call('lyrics',[JSON.stringify({
+          trackKey:song?.trackKey||'',title:song?.title||'',artist:song?.artist||'',
+          lines:song?.lines||[],pureMusic:shouldSpectrum,searching
+        })]);
       }
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
       clearInterval(this.timer);this.timer=null;
-      this.call('spectrumEnabled',['false']);this.call('shutdown');
+      this.call('spectrumEnabled',['false']);this.spectrumCapture=false;this.call('shutdown');
     }
   }
 
@@ -519,7 +528,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.3（TBL 转场与音频频谱测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.4（锁定悬停解锁、加载态与翻译测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
