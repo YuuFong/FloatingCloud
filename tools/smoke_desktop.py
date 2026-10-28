@@ -6,6 +6,8 @@ html=(root/'plugin'/'desktop.html').read_text(encoding='utf8')
 assert 'id="drag"' not in html, 'old drag bar still present'
 assert 'id="play-pause"' in html and 'seekForward' in html
 assert 'controlsOpen' in html and 'fontSmaller' in html
+assert 'id="spectrum"' in html and 'spectrumTargets' in html
+assert 'background:rgba(21,26,34,.90)' not in html
 assert html.count('class="fc-stage"')==1
 scripts=re.findall(r'<script>([\s\S]*?)</script>',html)
 assert len(scripts)==3, f'expected 3 inline scripts (core, TBL, renderer), got {len(scripts)}'

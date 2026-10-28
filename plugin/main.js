@@ -36,7 +36,7 @@
   class LiveLyrics {
     constructor() {
       this.api = null; this.trackKey = ''; this.title = '';
-      this.lines = []; this.kind = ''; this.error = ''; this.busy = false;
+      this.lines = []; this.kind = ''; this.error = ''; this.busy = false; this.pureMusic=false;
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
@@ -82,7 +82,7 @@
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
       this.durationMs = Number(song?.duration ?? 0);
-      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = '';
+      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
@@ -90,40 +90,63 @@
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
       } catch (_) { /* ignore */ }
-      if (!(id > 0) && (!this.title || !this.artist)) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||''; notify(); return; }
+      if (!this.title || !this.artist) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const timer = setTimeout(() => ctrl.abort(), 15500);
       let result=null, lastError='';
       try {
-        // Preserve actual YRC word timing when available from Netease.
-        if (id > 0) {
+        // TaskbarLyrics Core's real QQMusic/QRC, Kugou/KRC, LRCLIB parsers.
+        // The .NET helper is self-contained and launched by native.dll in a
+        // background worker. Netease song metadata is used for matching only.
+        const nativeApi=window.betterncm_native?.native_plugin;
+        if(nativeApi?.call) {
           try {
-            const base=(typeof window.APP_CONF?.domain === 'string' &&
-                /^https:\/\//.test(window.APP_CONF.domain))
-              ? window.APP_CONF.domain : 'https://music.163.com';
-            const url=base+'/api/song/lyric/v1?tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&cp=false&id='+encodeURIComponent(id);
-            const response=await fetch(url,{signal:ctrl.signal});
-            if(!response.ok) throw Error('网易云 HTTP '+response.status);
-            const parsed=Core.parseNcmLyrics(await response.json());
-            if(parsed.lines.length) result={...parsed,provider:'网易云'};
-          } catch (e) {if(ctrl.signal.aborted) throw e;lastError=String(e.message||e);}
+            const request={TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs};
+            if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
+              const limit=performance.now()+12500;
+              while(!ctrl.signal.aborted && performance.now()<limit) {
+                await new Promise(resolve=>setTimeout(resolve,200));
+                const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
+                if(!raw)continue;
+                let response;
+                try {response=JSON.parse(raw);}catch(_){break;}
+                if(response.trackKey!==key)continue;
+                if(response.pureMusic) {this.pureMusic=true;break;}
+                if(Array.isArray(response.lines) && response.lines.length) {
+                  const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
+                    .map(l=>({
+                      time:l.time,duration:Number(l.duration||0),text:l.text,
+                      words:Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
+                        .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[],
+                      kind:l.kind||'lrc'
+                    })).sort((a,b)=>a.time-b.time);
+                  if(lines.length){result={lines,kind:response.kind||'lrc',provider:response.provider||'TBL'};break;}
+                }
+                break;
+              }
+            }
+          }catch(e) {lastError=String(e.message||e);}
         }
         // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
         // No invented word times: a strict song/artist/duration match is required.
-        if (!result && this.title && this.artist && !ctrl.signal.aborted) {
+        if (!result && !this.pureMusic && this.title && this.artist && !ctrl.signal.aborted) {
           const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
           if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
           const response=await fetch('https://lrclib.net/api/get?'+args,{
-            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.1 (https://github.com/YuuFong/FloatingCloud)'}});
+            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
           if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
           const meta={title:this.title,artist:this.artist,durationMs:this.durationMs};
-          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),meta);
+          if(response.status===200) {
+            const record=await response.json();
+            if(record.instrumental) this.pureMusic=true;
+            result=Core.parseLrclibRecord(record,meta);
+          }
           else if(response.status===404) {
             const searchUrl='https://lrclib.net/api/search?'+new URLSearchParams({
               track_name:this.title,artist_name:this.artist});
             const searchResp=await fetch(searchUrl,{signal:ctrl.signal,headers:{
-              'Lrclib-Client':'FloatingCloud/0.4.2 (https://github.com/YuuFong/FloatingCloud)'}});
+              'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
             if(searchResp.ok) {
               const candidates=await searchResp.json();
               if(Array.isArray(candidates)) {
@@ -138,10 +161,10 @@
         }
         if(this.trackKey!==key || ctrl.signal.aborted) return;
         if(result?.lines?.length) {
-          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;
+          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
           this.cache.set(key,result);
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
-        } else this.error = lastError ? '未找到歌词（网易云：'+lastError+'）' : '未找到可信的同步歌词';
+        } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
       } catch(e) {
         if(this.trackKey===key) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
@@ -168,7 +191,7 @@
   class DesktopBridge {
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
-      this.timer = null; this.sentLines = null; this.sentTrack = null;
+      this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -194,7 +217,7 @@
       this.enabled = true;this.call('show');
       this.applySettings(settings);
       this.call('lock', [String(this.locked)]);
-      this.sentTrack=null;this.sentLines=null;
+      this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;
       if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
       plugin.setConfig('desktop-visible-v1', true);
@@ -204,7 +227,7 @@
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
-      this.call('close');this.message='已关闭桌面浮窗';
+      this.call('spectrumEnabled',['false']);this.spectrumActive=false;this.call('close');this.message='已关闭桌面浮窗';
     }
     unlock() {
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
@@ -215,7 +238,7 @@
       this.call('settings',[JSON.stringify(s)]);
       this.call('width',[String(Math.round(s.width))]);
       const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
-      this.call('height',[String(64+pitch*2+8)]);
+      this.call('height',[String(72+pitch*2+8)]);
     }
     tick() {
       if (!this.enabled)return;
@@ -239,16 +262,23 @@
         else api?.play?.();
       }
       const song=live;
-      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack) {
+      // No random fake spectrum; capture the audio output only while a song
+      // is playing and the selected lyric source found no synchronized text.
+      const shouldSpectrum=Boolean(song?.trackKey && !song?.busy && !song?.lines?.length && song?.clock.isPlaying());
+      if(shouldSpectrum!==this.spectrumActive) {
+        this.spectrumActive=shouldSpectrum;
+        this.call('spectrumEnabled',[String(shouldSpectrum)]);
+      }
+      if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack || shouldSpectrum!==this.sentPureMusic) {
         this.sentLines=song?.lines;
-        this.sentTrack=song?.trackKey;
-        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[]})]);
+        this.sentTrack=song?.trackKey;this.sentPureMusic=shouldSpectrum;
+        this.call('lyrics',[JSON.stringify({trackKey:song?.trackKey||'',title:song?.title||'',lines:song?.lines||[],pureMusic:shouldSpectrum})]);
       }
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
       clearInterval(this.timer);this.timer=null;
-      this.call('shutdown');
+      this.call('spectrumEnabled',['false']);this.call('shutdown');
     }
   }
 
@@ -263,6 +293,7 @@
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
   .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
   .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
@@ -382,23 +413,28 @@
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
-      // At -pitch: row 1 is visually at y=0. After removing row 0 and
-      // setting transform to 0, *the same DOM row* remains at y=0.
-      // No re-render, font swap, or one-frame snap at the roll boundary.
-      this.track.style.transition = 'none';
-      const departed = this.rows.shift();
-      departed.remove();
-      this.rows[0].className = 'fc-line fc-line-primary';
-      const incoming = el('div', 'fc-line fc-line-secondary');
-      this.rows.push(incoming); this.track.append(incoming);
-      this.scanRows.shift(); this.scanRows.push(null);
-      this.track.style.transform = 'translate3d(0,0,0)';
-      this.index = nextIndex;
-      this.renderRow(2, this.index + 2);
-      this.rows[1].classList.remove('fc-incoming');
-      this.busy = false;
-      const pending = this.pending; this.pending = null;
-      if (pending) this.update(pending.index, pending.progress, pending.timeMs);
+      // TBL's finalizeTransition: turn off *all* child transitions before
+      // resetting font scaling and moving the content origin. The previous
+      // implementation shifted live DOM rows, causing a white flash.
+      this.track.classList.add('fc-no-anim');
+      this.track.style.transition='none';
+      this.rows[0].style.opacity='.16';
+      this.rows[1].style.opacity='1';
+      void this.track.offsetHeight;
+      this.index=nextIndex;
+      this.track.style.transform='translate3d(0,0,0)';
+      this.draw();
+      this.rows[0].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[1].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[2].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows.forEach(r=>{r.style.opacity='';r.style.transform='';});
+      this.renderScan(Core.lineProgress(this.lines,nextIndex,this.lastPosition),
+        this.lastPosition,this.scanRows[0]);
+      void this.track.offsetHeight;
+      this.track.classList.remove('fc-no-anim');
+      this.busy=false;
+      const pending=this.pending;this.pending=null;
+      if(pending)this.update(pending.index,pending.progress,pending.timeMs);
     }
     frameAt(index, progress, timeMs) {
       const safe=Math.max(0,index);
@@ -451,7 +487,10 @@
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add('fc-leaving');
           this.rows[1].classList.add('fc-promoting');
-          this.rows[2].classList.add('fc-incoming');
+          // Incoming second line is visible through the moving viewport,
+          // exactly as in TBL; hiding it and revealing it only at the end
+          // caused the next-line flash.
+          this.rows[2].classList.remove('fc-incoming');
           // Commit the starting geometry before starting the transform.
           void this.track.offsetHeight;
           this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
@@ -480,7 +519,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.2（TaskbarLyrics 转场测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.3（TBL 转场与音频频谱测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
