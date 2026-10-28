@@ -46,10 +46,11 @@
       primary: `rgba(${rgb},0.9)`,
       translation: `rgba(${rgb},0.7)`,
       secondary: `rgba(${rgb},0.6)`,
-      // TBL v1.7.4 computes the overlay from byte alphas:
-      // primary=229, secondary=153 -> (229-153)*255/(255-153)=190,
-      // so overlaying the 60%-alpha base yields the 90%-alpha played text.
-      scan: `rgba(${rgb},${(190/255).toFixed(3)})`,
+      // TBL's 190/255 overlay was too dim on some desktop backgrounds;
+      // this conservative render path favors contrast and stable playback.
+      // Playback hotfix: the played portion needs a visibly stronger layer.
+      // Use a plain fully opaque clip overlay, avoiding GPU mask composition.
+      scan: `rgba(${rgb},1)`,
       stroke: darkText ? '#f8fafc' : '#222936',
       spectrum: darkText ? '#111827' : '#ffffff'
     };
