@@ -12,7 +12,7 @@ set(WEBVIEW2_SDK_ROOT "" CACHE PATH "Path to Microsoft.Web.WebView2 NuGet packag
 if(NOT EXISTS "${WEBVIEW2_SDK_ROOT}/build/native/include/WebView2.h")
   message(FATAL_ERROR "Set WEBVIEW2_SDK_ROOT to extracted NuGet Microsoft.Web.WebView2 package")
 endif()
-add_library(floatingcloud_host SHARED floatingcloud.cpp spectrum.cpp)
+add_library(floatingcloud_host SHARED floatingcloud.cpp spectrum.cpp lyrics_sidecar.cpp)
 target_include_directories(floatingcloud_host PRIVATE "${WEBVIEW2_SDK_ROOT}/build/native/include")
 target_link_libraries(floatingcloud_host PRIVATE
   "${WEBVIEW2_SDK_ROOT}/build/native/x64/WebView2LoaderStatic.lib"
