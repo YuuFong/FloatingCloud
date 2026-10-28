@@ -323,8 +323,11 @@
       // Searching and no lyrics are different states. No spectrum until
       // providers finish; do not gate the spectrum UI on playback status.
       const searching=Boolean(song?.trackKey && song?.busy);
-      const shouldSpectrum=Boolean(song?.trackKey && !searching &&
-        (song?.pureMusic || !song?.lines?.length));
+      // TBL helpers can return explicit IsPureMusic or only a timestamped
+      // "纯音乐，请欣赏" placeholder. Respect both; manual mode is an escape
+      // hatch when a third-party source assigns bogus lyrics to an instrumental.
+      const shouldSpectrum=Boolean(song?.trackKey &&
+        Core.shouldDisplaySpectrum(song?.lines,song?.pureMusic,searching,settings.spectrumMode));
       const shouldCapture=shouldSpectrum && Boolean(song?.clock.isPlaying());
       if(shouldCapture!==this.spectrumCapture) {
         this.spectrumCapture=shouldCapture;
@@ -607,7 +610,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.11 Beta（中心宽度调整与位置恢复）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.12 Beta（定位与纯音乐频谱修复）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -633,7 +636,10 @@
       const actual=desktop?.enabled ? (desktop.call('getPosition')||'不可用') : '未显示';
       desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+
         (desktop?.locked?' · 已锁定':' · 未锁定')+
-        ' · 位置存档 '+saved+' · 当前窗口 '+actual;
+        ' · 位置存档 '+saved+' · 当前窗口 '+actual+
+        ' · 频谱 '+(desktop?.spectrumActive?'显示中':'未切换')+
+        ' · 音频采集 '+(desktop?.spectrumCapture?'已请求':'未请求')+
+        ' · 歌词 '+(live?.lines?.length||0)+'行'+(live?.pureMusic?'（纯音乐标记）':'');
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
     demoWrap.append(tools, desktopStatus); panel.append(demoWrap);
@@ -659,6 +665,11 @@
       ['strokeWidth','描边宽度','range',0,5,.2],
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
       ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
+      ['spectrumMode','频谱显示策略','select',[
+        {value:'auto',label:'自动识别（默认）'},
+        {value:'force-spectrum',label:'强制显示频谱（歌词误识别时）'},
+        {value:'lyrics-only',label:'始终显示歌词'}
+      ]],
       ['align','对齐方式','select',['left','center','right']],
       ['width','显示宽度（向左右对称伸缩）','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
       ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
