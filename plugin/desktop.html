@@ -934,7 +934,7 @@ const Core = window.FloatingCloudCore;
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
      row, never an opaque drop-shadow/outline that changes apparent opacity. */
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:visible;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
   /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
      60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
@@ -944,7 +944,9 @@ const Core = window.FloatingCloudCore;
   .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
   .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
-  .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Keep the glow's blur inside the clipping box. Negative margins preserve
+     the glyph position; the stage still clips the offscreen rolling rows. */
+  .fc-text-box{position:relative;display:block;max-width:calc(100% - 64px);padding:32px;margin:-32px auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
@@ -959,7 +961,7 @@ const Core = window.FloatingCloudCore;
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   /* Playback-safe renderer: no per-frame mask-image or mask gradients.
      The clipped scan layer is fully opaque and noticeably brighter than the
