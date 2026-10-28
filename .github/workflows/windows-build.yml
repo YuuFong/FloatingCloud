@@ -1,12 +1,21 @@
 name: FloatingCloud Native Win64
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'plugin/**'
+      - 'native/**'
+      - 'lyric-helper/**'
+      - 'tools/**'
+      - '.github/workflows/windows-build.yml'
   push:
     paths:
       - 'plugin/**'
       - 'native/**'
+      - 'lyric-helper/**'
       - 'tools/**'
       - '.github/workflows/windows-build.yml'
+
 jobs:
   build:
     runs-on: windows-2022
@@ -15,17 +24,49 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run JavaScript lyric tests
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Run JavaScript lyric and update-check tests
         shell: pwsh
         run: |
           node --check plugin/core.js
           node --check plugin/main.js
           node --check plugin/ncm-path.js
-          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js tools/ncm-directory-integration.test.js tools/playback-events.test.js tools/glow-render.test.js
+          node --check plugin/update-check.js
+          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js tools/ncm-directory-integration.test.js tools/playback-events.test.js tools/glow-render.test.js tools/test-update-check.cjs
       - name: Build and package x64 plugin
         shell: pwsh
         run: .\tools\build-windows.ps1
-      - uses: actions/upload-artifact@v4
+      - name: Verify test plugin archive and print SHA-256
+        shell: pwsh
+        run: |
+          $version = (Get-Content plugin/manifest.json -Raw | ConvertFrom-Json).version
+          $package = "FloatingCloud-v$version.plugin"
+          if (-not (Test-Path $package)) { throw "Missing output: $package" }
+          python -m zipfile -t $package
+          if ($LASTEXITCODE -ne 0) { throw 'Plugin ZIP validation failed' }
+          @'
+          import json, sys, zipfile
+          package=sys.argv[1]
+          with zipfile.ZipFile(package) as bundle:
+              files=set(bundle.namelist())
+              required={'manifest.json','core.js','ncm-path.js','vendor/tbl-presentation.js','update-check.js','main.js','native.dll','FloatingCloudLyrics.exe','desktop.html'}
+              missing=required-files
+              if missing: raise RuntimeError(f'Missing required plugin files: {sorted(missing)}')
+              manifest=json.loads(bundle.read('manifest.json'))
+              assert manifest['version'] == sys.argv[2]
+              assert manifest['slug'] == 'floatingcloud-lite'
+              assert bundle.getinfo('native.dll').file_size > 0
+              assert bundle.getinfo('FloatingCloudLyrics.exe').file_size > 0
+              print(f'Validated {package}: {len(files)} entries, version {manifest["version"]}')
+          '@ | python - $package $version
+          if ($LASTEXITCODE -ne 0) { throw 'Plugin contents validation failed' }
+          Get-FileHash $package -Algorithm SHA256 | Format-List
+      - name: Upload Windows test plugin (.plugin)
+        uses: actions/upload-artifact@v4
         with:
-          name: FloatingCloud-plugin-win64
-          path: FloatingCloud-v0.4.37.plugin
+          name: FloatingCloud-plugin-test-win64
+          path: FloatingCloud-v*.plugin
+          if-no-files-found: error
+          retention-days: 30
