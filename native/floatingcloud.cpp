@@ -710,6 +710,10 @@ static const char* spectrumEnabled(void** a) {
     fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
     return fc_spectrum::available()?"available":"starting-or-disabled";
 }
+static const char* spectrumStatus(void**) {
+    // Distinguish UI mode switching from WASAPI initialization failure.
+    return fc_spectrum::available()?"available":"not-ready";
+}
 static const char* lyricsLookup(void** a){
     if(!a || !a[0])return "error";
     fc_lyrics::request(static_cast<const char*>(a[0]));
@@ -753,6 +757,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.movedPosition",movedPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.spectrumEnabled",spectrumEnabled);
+    api->addNativeAPI(nullptr,0,"floatingcloud.spectrumStatus",spectrumStatus);
     api->addNativeAPI(stringArg,1,"floatingcloud.lyricsLookup",lyricsLookup);
     api->addNativeAPI(nullptr,0,"floatingcloud.lyricsPoll",lyricsPoll);
     api->addNativeAPI(nullptr,0,"floatingcloud.poll",poll);
