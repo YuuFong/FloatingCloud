@@ -43,26 +43,8 @@ jobs:
         run: |
           $version = (Get-Content plugin/manifest.json -Raw | ConvertFrom-Json).version
           $package = "FloatingCloud-v$version.plugin"
-          if (-not (Test-Path $package)) { throw "Missing output: $package" }
-          python -m zipfile -t $package
-          if ($LASTEXITCODE -ne 0) { throw 'Plugin ZIP validation failed' }
-          @'
-          import json, sys, zipfile
-          package=sys.argv[1]
-          with zipfile.ZipFile(package) as bundle:
-              files=set(bundle.namelist())
-              required={'manifest.json','core.js','ncm-path.js','vendor/tbl-presentation.js','update-check.js','main.js','native.dll','FloatingCloudLyrics.exe','desktop.html'}
-              missing=required-files
-              if missing: raise RuntimeError(f'Missing required plugin files: {sorted(missing)}')
-              manifest=json.loads(bundle.read('manifest.json'))
-              assert manifest['version'] == sys.argv[2]
-              assert manifest['slug'] == 'floatingcloud-lite'
-              assert bundle.getinfo('native.dll').file_size > 0
-              assert bundle.getinfo('FloatingCloudLyrics.exe').file_size > 0
-              print(f'Validated {package}: {len(files)} entries, version {manifest["version"]}')
-          '@ | python - $package $version
-          if ($LASTEXITCODE -ne 0) { throw 'Plugin contents validation failed' }
-          Get-FileHash $package -Algorithm SHA256 | Format-List
+          python tools/validate-plugin-package.py $package
+          if ($LASTEXITCODE -ne 0) { throw 'Plugin validation failed' }
       - name: Upload Windows test plugin (.plugin)
         uses: actions/upload-artifact@v4
         with:
