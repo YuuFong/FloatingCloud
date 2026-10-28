@@ -225,7 +225,7 @@
   // never be turned into a spectrum because one line mentions "纯音乐".
   function isInstrumentalPlaceholder(line) {
     const text=String(line?.text||'').normalize('NFKC').trim().toLowerCase()
-      .replace(/[\s，。！!~～:：·•.()（）\[\]【】_\-–—]/g,'');
+      .replace(/[\s,，。！!~～:：·•.()（）\[\]【】_\-–—]/g,'');
     return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(text);
   }
   function shouldDisplaySpectrum(lines, pureMusic=false, searching=false, mode='auto') {
