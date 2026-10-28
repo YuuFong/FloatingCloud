@@ -1,0 +1,43 @@
+name: FloatingCloud Setup Win64
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'installer/**'
+      - '.github/workflows/installer-windows.yml'
+      - 'plugin/**'
+      - 'lyric-helper/**'
+      - 'native/**'
+      - 'tools/**'
+jobs:
+  setup:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build and verify bundled FC plugin
+        shell: pwsh
+        run: .\tools\build-windows.ps1
+      - name: Publish standalone one-file WinForms setup
+        shell: pwsh
+        run: |
+          dotnet publish .\installer\FloatingCloud.Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true -o .\build\setup
+          if($LASTEXITCODE -ne 0){throw "Installer publish failed"}
+          $exe=".\build\setup\FloatingCloud.Setup.exe"
+          if(-not (Test-Path $exe)){throw "Missing setup exe"}
+          & $exe --selftest
+          if($LASTEXITCODE -ne 0){throw "Installer selftest failed"}
+          Copy-Item $exe ".\FloatingCloud-Setup-v0.1.0.exe" -Force
+      - name: Upload setup and bundled plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: FloatingCloud-Setup-win64
+          path: |
+            FloatingCloud-Setup-v0.1.0.exe
+            FloatingCloud-v0.4.7.plugin
+          if-no-files-found: error
