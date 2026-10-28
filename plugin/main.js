@@ -5,7 +5,20 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.19-beta';
+  const VERSION = '0.4.20-beta-diag';
+  const DIAG_KEY = 'diagnostic-mode-v1';
+  const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert'];
+  const selectedMode = plugin.getConfig(DIAG_KEY, 'full');
+  const diagMode = DIAG_MODES.includes(selectedMode) ? selectedMode : 'full';
+  const diag = {
+    preview: !['no-preview','events-only','inert'].includes(diagMode),
+    spectrum: diagMode !== 'no-spectrum',
+    window: !['no-window','events-only','inert'].includes(diagMode),
+    nativeLyrics: diagMode !== 'no-native-lyrics',
+    eventsOnly: diagMode === 'events-only',
+    events: diagMode !== 'inert'
+  };
+  console.info('[FloatingCloud diagnostic] mode=' + diagMode);
   const NcmPath = window.FloatingCloudNcmPath;
   const KEY = 'appearance-v2' /* keep existing users’ saved settings */;
   const DEMO = Core.parseNcmLyrics({
@@ -105,20 +118,21 @@
       // InfLink-rs exposes basic metadata; when available, read NCM's own
       // playing-song "mark" / nolyric without making an external API request.
       let ncmSong=null;
-      try {
+      try { if (!diag.eventsOnly) {
         const playing=window.betterncm?.ncm?.getPlayingSong?.();
         if(playing && Number(playing.id)===id)ncmSong=playing;
-      } catch(_){}
+      }} catch(_){}
       this.trackInstrumental=Core.isNcmInstrumental(song)||Core.isNcmInstrumental(ncmSong);
       this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
       this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
-      try {
+      try { if (!diag.eventsOnly) {
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
-      } catch (_) { /* ignore */ }
+      }} catch (_) { /* ignore */ }
+      if (diag.eventsOnly) { notify(); return; }
       if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
       if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
@@ -129,7 +143,7 @@
         // The .NET helper is self-contained and launched by native.dll in a
         // background worker. Netease song metadata is used for matching only.
         const nativeApi=window.betterncm_native?.native_plugin;
-        if(nativeApi?.call) {
+        if(diag.nativeLyrics && nativeApi?.call) {
           try {
             const offlineHint=(typeof navigator !== 'undefined' && navigator.onLine===false);
             const manualFolders=settings.localLyricsFolders.split(/[;\r\n]+/).map(p=>p.trim()).filter(Boolean);
@@ -352,15 +366,15 @@
       // TBL helpers can return explicit IsPureMusic or only a timestamped
       // "纯音乐，请欣赏" placeholder. Respect both; manual mode is an escape
       // hatch when a third-party source assigns bogus lyrics to an instrumental.
-      const shouldSpectrum=Boolean(song?.trackKey &&
+      const shouldSpectrum=diag.spectrum && Boolean(song?.trackKey &&
         Core.shouldDisplaySpectrum(song?.lines,song?.pureMusic,searching,settings.spectrumMode,
           song?.trackInstrumental));
-      const shouldCapture=shouldSpectrum && Boolean(song?.clock.isPlaying());
+      const shouldCapture=diag.spectrum && shouldSpectrum && Boolean(song?.clock.isPlaying());
       if(shouldCapture!==this.spectrumCapture) {
         this.spectrumCapture=shouldCapture;
         this.call('spectrumEnabled',[String(shouldCapture)]);
       }
-      this.spectrumActive=shouldSpectrum;
+      this.spectrumActive=diag.spectrum && shouldSpectrum;
       if (song?.lines!==this.sentLines || song?.trackKey!==this.sentTrack ||
           shouldSpectrum!==this.sentPureMusic || searching!==this.sentSearching) {
         this.sentLines=song?.lines;this.sentTrack=song?.trackKey;
@@ -657,6 +671,20 @@
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
     panel.append(el('h2', '', `FloatingCloud · 歌词显示 v${VERSION}`));
+    const diagLabel=el('label','fc-control');
+    diagLabel.append(el('span','','诊断模式（修改后重启网易云生效）'));
+    const diagSelect=el('select');
+    for(const [value,label] of [
+      ['full','完整功能'],['no-preview','仅关闭设置页预览动画'],
+      ['no-spectrum','仅关闭频谱采集'],['no-window','仅关闭桌面窗口通信'],
+      ['no-native-lyrics','仅关闭 Native 歌词查询'],
+      ['events-only','仅保留播放事件监听和基础曲目信息'],
+      ['inert','仅加载插件，不启动播放监听、窗口或预览']
+    ]) { const option=el('option','',label);option.value=value;diagSelect.append(option); }
+    diagSelect.value=plugin.getConfig(DIAG_KEY,'full');
+    diagSelect.addEventListener('change',()=>plugin.setConfig(DIAG_KEY,diagSelect.value));
+    diagLabel.append(diagSelect);panel.append(diagLabel);
+    panel.append(el('p','fc-hint','当前生效：'+diagMode+'。每次仅测试一个模式；切换后完整退出并重启网易云。此设置独立保存，不改动原有歌词偏好。'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -852,7 +880,7 @@
         : 'YRC 逐词动画演示 · 14 秒循环，无需播放歌曲';
       raf = requestAnimationFrame(drawFrame);
     };
-    raf = requestAnimationFrame(drawFrame);
+    if (diag.preview) raf = requestAnimationFrame(drawFrame);
     return panel;
   });
 
@@ -863,10 +891,10 @@
   });
   plugin.onLoad(() => {
     if (live) live.destroy();
-    live = new LiveLyrics(); live.init();
-    desktop = new DesktopBridge();
+    if (diag.events) { live = new LiveLyrics(); live.init(); }
+    if (diag.window) desktop = new DesktopBridge();
     // Never start an unverified native window unless user explicitly opted in earlier.
-    if (plugin.getConfig('desktop-visible-v1',false)) desktop.enable();
+    if (desktop && plugin.getConfig('desktop-visible-v1',false)) desktop.enable();
   });
   plugin.onUnload?.(()=>{desktop?.shutdown();live?.destroy();});
   window.addEventListener('beforeunload',()=>{desktop?.shutdown();});

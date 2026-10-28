@@ -46,3 +46,40 @@ test('displayed and packaged versions match manifest', () => {
   assert.match(fs.readFileSync(path.join(root, 'plugin/main.js'), 'utf8'), new RegExp(`VERSION = '${version}'`));
   assert.match(fs.readFileSync(path.join(root, '.github/workflows/windows-build.yml'), 'utf8'), new RegExp(`FloatingCloud-v${version}\\.plugin`));
 });
+
+test('diagnostic modes isolate event and window startup without changing saved preferences', async () => {
+  const source = fs.readFileSync(path.join(__dirname, '../plugin/main.js'), 'utf8');
+  for (const mode of ['inert', 'no-window', 'events-only']) {
+    const listeners = new Map(), calls = [], writes = [];
+    let load;
+    const api = {
+      addEventListener(name, fn) { listeners.set(name, fn); }, removeEventListener(name) { listeners.delete(name); },
+      getCurrentSong() { return { ncmId: 7, songName: 'test' }; },
+      getTimeline() { return { currentTime: 0 }; }, getPlaybackStatus() { return 'Playing'; },
+    };
+    const core = {
+      parseNcmLyrics() { return { lines: [] }; }, normalizeSettings(x) { return { lyricsMode: 'local-only', localLyricsFolders: '', ...x }; },
+      createClock() { return { anchor() {}, setPlaying() {}, reset() {} }; }, isNcmInstrumental() { return false; },
+    };
+    const context = {
+      window: { FloatingCloudCore: core, InfLinkApi: api, addEventListener() {}, betterncm_native: { native_plugin: { call(name) { calls.push(name); return 'started'; } } } },
+      plugin: {
+        getConfig(key, fallback) { return key === 'diagnostic-mode-v1' ? mode : key === 'desktop-visible-v1' ? true : fallback; },
+        setConfig(key) { writes.push(key); }, onLoad(fn) { load = fn; }, onConfig() {}, onUnload() {},
+      },
+      AbortController, setTimeout, clearTimeout, setInterval, clearInterval, performance, navigator: { onLine: false }, console,
+    };
+    vm.runInNewContext(source, context);
+    load();
+    if (mode === 'inert') assert.equal(listeners.size, 0);
+    else assert.equal(listeners.size, 3);
+    assert.equal(calls.includes('floatingcloud.open'), false, `${mode} must not start the native host`);
+    if (mode !== 'no-window') assert.equal(calls.length, 0, `${mode} must not start native lyrics`);
+    assert.deepEqual(writes, []);
+    if (mode === 'events-only') {
+      listeners.get('songChange')({ detail: { ncmId: 8, songName: 'next' } });
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(calls.length, 0);
+    }
+  }
+});
