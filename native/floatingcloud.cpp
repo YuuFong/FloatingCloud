@@ -297,6 +297,7 @@ void webReceived(ICoreWebView2WebMessageReceivedEventArgs* args) {
     else if (cmd==L"seekForward") requestedAction.store(7);
     else if (cmd==L"fontSmaller") requestedAction.store(8);
     else if (cmd==L"fontLarger") requestedAction.store(9);
+    else if (cmd==L"refreshLyrics") requestedAction.store(11);
     else if (cmd==L"previous") requestedAction.store(1);
     else if (cmd==L"toggle") requestedAction.store(2);
     else if (cmd==L"next") requestedAction.store(3);
@@ -744,7 +745,7 @@ static const char* poll(void**){
         case 4:return "close";case 5:return "lock";
         case 6:return "seekBack";case 7:return "seekForward";
         case 8:return "fontSmaller";case 9:return "fontLarger";
-        case 10:return "unlock";default:return "";
+        case 10:return "unlock";case 11:return "refreshLyrics";default:return "";
     }
 }
 static const char* shutdown(void**){fc::stopHost();return "ok";}

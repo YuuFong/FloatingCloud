@@ -50,6 +50,17 @@ test('displayed and packaged versions match manifest', () => {
   assert.match(fs.readFileSync(path.join(root, '.github/workflows/windows-build.yml'), 'utf8'), new RegExp(`FloatingCloud-v${version}\\.plugin`));
 });
 
+test('quick settings refresh action reaches the current lyric lookup', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'plugin/desktop.html'), 'utf8');
+  const native = fs.readFileSync(path.join(root, 'native/floatingcloud.cpp'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'plugin/main.js'), 'utf8');
+  assert.match(html, /data-action="refreshLyrics"[^>]*aria-label="重新获取当前歌词"/);
+  assert.match(native, /cmd==L"refreshLyrics"/);
+  assert.match(native, /case 11:return "refreshLyrics"/);
+  assert.match(main, /action === 'refreshLyrics'\) live\?\.refresh\(\)/);
+});
+
 test('diagnostic modes isolate event and window startup without changing saved preferences', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../plugin/main.js'), 'utf8');
   for (const mode of ['inert', 'no-window', 'events-only','timeline-read-only','lyrics-only','http-only']) {

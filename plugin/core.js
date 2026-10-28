@@ -82,8 +82,8 @@
       enableWordScan: Boolean(v.enableWordScan),
       chorusGlowEnabled: Boolean(v.chorusGlowEnabled),
       chorusGlowIntensity: clamp(number(v.chorusGlowIntensity, 30), 0, 100),
-      chorusGlowStyle: ['soft','standard','bright'].includes(v.chorusGlowStyle)
-        ? v.chorusGlowStyle : 'soft',
+      chorusGlowStyle: ['soft','standard'].includes(v.chorusGlowStyle)
+        ? v.chorusGlowStyle : 'standard',
       lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
         ? v.lyricsMode : 'online-first',
       // Paths are saved only in BetterNCM settings and sent to the local .NET helper.

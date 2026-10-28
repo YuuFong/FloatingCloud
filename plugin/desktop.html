@@ -26,7 +26,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
 #root.controls-open #state{opacity:.85}
 #stage{cursor:grab}#stage:active{cursor:grabbing}
-#mini-settings{position:absolute;left:50%;top:46px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
+#mini-settings{position:absolute;left:50%;top:46px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px;gap:6px}
 #mini-settings.open{display:flex;align-items:center;gap:8px}
 #mini-settings button{background:transparent;color:white;border:0;border-radius:0;padding:3px 8px;cursor:pointer}
 /* The original + translation/next rows sit at 92..(92+2*pitch).
@@ -43,7 +43,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
  transition:background 280ms ease,opacity 260ms ease;opacity:.78}
 @media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
 </style></head><body>
-<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="resize-guide" aria-hidden="true"></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
+<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings"><span>字号</span><button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><button data-action="refreshLyrics" title="重新获取当前歌词" aria-label="重新获取当前歌词">⟳</button></div><div id="resize-guide" aria-hidden="true"></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
 <script>
 /* FloatingCloud Lite — lyric parsing, playback-clock and render timing primitives.
  * Original implementation. Behaviors informed by ANYNC TaskbarLyrics v1.7.4 (MIT).
@@ -129,8 +129,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
       enableWordScan: Boolean(v.enableWordScan),
       chorusGlowEnabled: Boolean(v.chorusGlowEnabled),
       chorusGlowIntensity: clamp(number(v.chorusGlowIntensity, 30), 0, 100),
-      chorusGlowStyle: ['soft','standard','bright'].includes(v.chorusGlowStyle)
-        ? v.chorusGlowStyle : 'soft',
+      chorusGlowStyle: ['soft','standard'].includes(v.chorusGlowStyle)
+        ? v.chorusGlowStyle : 'standard',
       lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
         ? v.lyricsMode : 'online-first',
       // Paths are saved only in BetterNCM settings and sent to the local .NET helper.
@@ -950,7 +950,7 @@ const Core = window.FloatingCloudCore;
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
-  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 420ms ease-in-out}
   .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
@@ -972,7 +972,12 @@ const Core = window.FloatingCloudCore;
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
   .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
   /* rAF drives high-frequency YRC scanning; CSS transitions would restart every frame and lag. */
-  .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
+  .fc-group-heading{font-size:16px;font-weight:700;margin:0 0 5px;color:#e7efff}
+  .fc-settings-section{margin:16px 0;padding:16px 18px;border:1px solid #3c4960;border-radius:12px;background:rgba(30,40,58,.55)}
+  .fc-section-desc{font-size:12px;line-height:1.55;opacity:.72;margin:0 0 15px}
+  .fc-settings-section .fc-form-grid{margin-top:12px}
+  .fc-advanced{margin:18px 0;padding:12px 16px;border:1px solid #3c4960;border-radius:10px}
+  .fc-advanced summary{cursor:pointer;font-size:13px;font-weight:600}
   .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
   .fc-control select{max-width:100%;text-overflow:ellipsis}
   .fc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:13px 18px}
@@ -1049,9 +1054,9 @@ const Core = window.FloatingCloudCore;
     applyGlowSettings(s) {
       const v=this.stage.style;
       const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
-      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
+      const radius={soft:6,standard:9}[s.chorusGlowStyle]||6;
       const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
-        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
+        ({soft:.8,standard:1}[s.chorusGlowStyle]||.8));
       v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
       v.setProperty('--fc-glow-blur',radius+'px');
       v.setProperty('--fc-glow-wide',radius*2+'px');
@@ -1253,7 +1258,7 @@ function openControls(){
  if(locked)return;
  root.classList.add('controls-open');postAction('controlsOpen');
  clearTimeout(controlsTimer);
- controlsTimer=setTimeout(hideControls,3500);
+ if(!root.classList.contains('settings-open'))controlsTimer=setTimeout(hideControls,3500);
 }
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',ev=>{
  ev.stopPropagation();postAction(b.dataset.action);

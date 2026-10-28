@@ -36,7 +36,7 @@ test('editing glow preserves the rendered lyric row and active roll state',()=>{
   const generation=view.generation;
   view.track.style.transform='translate3d(0,-20px,0)';
   view.setGlow(true);
-  view.applySettings(Core.normalizeSettings({...initial,chorusGlowIntensity:80,chorusGlowStyle:'bright'}));
+  view.applySettings(Core.normalizeSettings({...initial,chorusGlowIntensity:80,chorusGlowStyle:'standard'}));
   assert.equal(view.rows[0].children[0],glyph);
   assert.equal(view.generation,generation);
   assert.equal(view.track.style.transform,'translate3d(0,-20px,0)');

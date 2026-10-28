@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.28-beta';
+  const VERSION = '0.4.29-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -415,6 +415,7 @@
       } else if (action === 'fontSmaller' || action === 'fontLarger') {
         setSettings({fontSize:Math.min(64,Math.max(14,settings.fontSize+(action==='fontLarger'?1:-1)))});
       }
+      else if (action === 'refreshLyrics') live?.refresh();
       else if (action === 'toggle') {
         if (api?.getPlaybackStatus?.() === 'Playing') api.pause?.();
         else api?.play?.();
@@ -485,7 +486,7 @@
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
-  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 420ms ease-in-out}
   .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
@@ -507,7 +508,12 @@
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
   .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
   /* rAF drives high-frequency YRC scanning; CSS transitions would restart every frame and lag. */
-  .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
+  .fc-group-heading{font-size:16px;font-weight:700;margin:0 0 5px;color:#e7efff}
+  .fc-settings-section{margin:16px 0;padding:16px 18px;border:1px solid #3c4960;border-radius:12px;background:rgba(30,40,58,.55)}
+  .fc-section-desc{font-size:12px;line-height:1.55;opacity:.72;margin:0 0 15px}
+  .fc-settings-section .fc-form-grid{margin-top:12px}
+  .fc-advanced{margin:18px 0;padding:12px 16px;border:1px solid #3c4960;border-radius:10px}
+  .fc-advanced summary{cursor:pointer;font-size:13px;font-weight:600}
   .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
   .fc-control select{max-width:100%;text-overflow:ellipsis}
   .fc-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:13px 18px}
@@ -584,9 +590,9 @@
     applyGlowSettings(s) {
       const v=this.stage.style;
       const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
-      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
+      const radius={soft:6,standard:9}[s.chorusGlowStyle]||6;
       const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
-        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
+        ({soft:.8,standard:1}[s.chorusGlowStyle]||.8));
       v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
       v.setProperty('--fc-glow-blur',radius+'px');
       v.setProperty('--fc-glow-wide',radius*2+'px');
@@ -775,6 +781,8 @@
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
     panel.append(el('h2', '', `FloatingCloud · 歌词显示 v${VERSION}`));
+    const advanced=el('details','fc-advanced');
+    advanced.append(el('summary','','诊断与兼容选项'));
     const diagLabel=el('label','fc-control');
     diagLabel.append(el('span','','诊断模式（修改后重启网易云生效）'));
     const diagSelect=el('select');
@@ -790,8 +798,8 @@
     ]) { const option=el('option','',label);option.value=value;diagSelect.append(option); }
     diagSelect.value=diagMode;
     diagSelect.addEventListener('change',()=>plugin.setConfig(DIAG_KEY,diagSelect.value));
-    diagLabel.append(diagSelect);panel.append(diagLabel);
-    panel.append(el('p','fc-hint','当前生效：'+diagMode+'。每次仅测试一个模式；切换后完整退出并重启网易云。此设置独立保存，不改动原有歌词偏好。'));
+    diagLabel.append(diagSelect);advanced.append(diagLabel);
+    advanced.append(el('p','fc-hint','当前生效：'+diagMode+'。切换后完整退出并重启网易云。'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -836,40 +844,50 @@
       updateDesktopStatus();
     },1100);
 
-    panel.append(el('h3', 'fc-group-heading', '文字与动画'));
-    const grid = el('div', 'fc-form-grid'); panel.append(grid);
     const inputs = new Map();
     const configs = [
+      ['__section','歌词外观','字体、颜色和桌面浮窗的基本布局'],
       ['enabled','启用预览','checkbox'], ['font','字体','select',Core.FONT_OPTIONS],
-      ['fontWeight','字体粗细（参考 TaskbarLyrics）','select',Core.WEIGHT_OPTIONS],
+      ['fontWeight','字体粗细','select',Core.WEIGHT_OPTIONS],
       ['fontSize','主行字号（副行小 2px）','range',14,64,1],
       ['showTranslation','外文歌曲优先显示对应翻译（无翻译时保持双行）','checkbox'],
-      ['foregroundMode','歌词前景色（参考 TBL：按透明度区分三行）','select',[
+      ['foregroundMode','歌词前景色','select',[
         {value:'system',label:'跟随系统'},
         {value:'light',label:'浅色歌词'},
         {value:'dark',label:'深色歌词'}
       ]],
+      ['align','对齐方式','select',['left','center','right']],
+      ['width','显示宽度','range',300,1200,10],
+      ['__section','滚动与同步','控制行距、切换速度和歌词时间轴'],
       ['lineGap','行间距','range',0,40,1],
+      ['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
+      ['animationSpeed','动画速度倍率','range',.5,2,.1],
+      ['enableWordScan','启用逐词或逐行高亮','checkbox'],
+      ['__section','纯音乐频谱','仅在识别为纯音乐或手动强制时显示'],
       ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
       ['spectrumBarWidth','纯音乐频谱单柱宽度（px）','range',1,12,1],
       ['spectrumMode','频谱显示策略','select',[
         {value:'auto',label:'自动识别（默认）'},
         {value:'force-spectrum',label:'强制显示频谱（歌词误识别时）'},
         {value:'lyrics-only',label:'始终显示歌词'}
-      ]],
-      ['align','对齐方式','select',['left','center','right']],
-      ['width','显示宽度（向左右对称伸缩）','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
-      ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
+      ]]
     ];
     configs.push(
+      ['__section','副歌辉光','有可靠副歌区间时，主行字体逐渐发光'],
       ['chorusGlowEnabled','启用高潮歌词辉光（有可靠区间时生效）','checkbox'],
       ['chorusGlowIntensity','辉光强度','range',0,100,1],
       ['chorusGlowStyle','辉光范围','select',[
-        {value:'soft',label:'轻柔'},{value:'standard',label:'标准'},{value:'bright',label:'明亮'}
+        {value:'soft',label:'轻柔'},{value:'standard',label:'标准'}
       ]]
     );
-    panel.append(el('p','fc-hint','高潮辉光开启后，仅在在线模式下按歌曲 ID 查询网易云副歌起止时间；无可靠区间时不发光。'));
+    let grid=null;
     for (const [key, caption, type, a, b, step] of configs) {
+      if(key==='__section'){
+        const section=el('section','fc-settings-section');
+        section.append(el('h3','fc-group-heading',caption),el('p','fc-section-desc',type));
+        grid=el('div','fc-form-grid');section.append(grid);panel.append(section);
+        continue;
+      }
       const label = el('label','fc-control');
       const title = el('span', '', caption);
       const input = type === 'select' ? el('select') : el('input');
@@ -917,9 +935,11 @@
       }
       label.append(title, input, sub); grid.append(label);
     }
-    panel.append(el('h3','fc-group-heading','歌词来源与离线使用'));
+    const sourceSection=el('section','fc-settings-section');panel.append(sourceSection);
+    sourceSection.append(el('h3','fc-group-heading','歌词来源与离线使用'),
+      el('p','fc-section-desc','选择检索顺序，并指定额外的本地歌词目录'));
     const ncmAutoPath=NcmPath?.getDownloadDir(window)||'';
-    const offlineGrid=el('div','fc-form-grid');panel.append(offlineGrid);
+    const offlineGrid=el('div','fc-form-grid');sourceSection.append(offlineGrid);
     const modeLabel=el('label','fc-control');
     modeLabel.append(el('span','','检索方式'));
     const modeSelect=el('select');
@@ -934,7 +954,7 @@
     modeSelect.value=settings.lyricsMode;
     modeSelect.addEventListener('change',()=>setSettings({lyricsMode:modeSelect.value}));
     modeLabel.append(modeSelect);offlineGrid.append(modeLabel);
-    panel.append(el('p','fc-hint',ncmAutoPath
+    sourceSection.append(el('p','fc-hint',ncmAutoPath
       ? '已自动检测到网易云下载目录：'+ncmAutoPath+'（无需填写）'
       : '尚未识别网易云下载目录；仍会搜索 Windows「音乐」文件夹，可在下方补充本地目录。'));
     const rootLabel=el('label','fc-control');
@@ -945,11 +965,10 @@
     rootsInput.spellcheck=false;
     rootsInput.addEventListener('change',()=>setSettings({localLyricsFolders:rootsInput.value}));
     rootLabel.append(rootsInput);offlineGrid.append(rootLabel);
-    panel.append(el('p','fc-hint',
+    sourceSection.append(el('p','fc-hint',
       '默认先检测网易云本身的下载目录，也搜索 Windows「音乐」文件夹；额外目录只在本机检索，不上传文件或路径。支持旁置 LRC/QRC/KRC 和部分音频内嵌歌词。下载目录里未必存有独立歌词文件，缺失时会继续回退。'));
-    panel.append(el('p','fc-hint','字体提示：思源黑体只使用本机已安装字体，不会随插件附带字体文件；如本机没安装会自动使用后备字体。'));
-    panel.append(el('p','fc-mini','逐词说明：YRC 提供词组起止时间，可逐词高亮；普通 LRC 只有整行时间戳，使用行级平滑扫描，不能还原真实的每个字时间。播放时间轴使用 InfLink-rs；仅浏览器预览不连接网易云。'));
-    panel.append(el('p','fc-hint','边界：桌面浮窗为 Native/WebView2 Windows 实验版；不会自动替代原生 DesktopLyrics。点击歌词显示工具栏，直接按住歌词拖动，工具栏包含快退/快进半秒、上一曲、播放/暂停、下一曲、锁定和关闭；锁定后可从这里解锁。无歌曲进度条。'));
+    advanced.append(el('p','fc-hint','思源黑体需本机安装。YRC 可逐词高亮；普通 LRC 按整行时间平滑扫描。桌面浮窗使用 Native/WebView2，播放时间轴来自 InfLink-rs。'));
+    panel.append(advanced);
     const rolling = new RollingView(stage); rolling.applySettings(settings);
     let useDemo = true, raf = 0, lastTrackKey = null, lastLines = null;
     const sub = () => rolling.applySettings(settings); subscribers.add(sub);

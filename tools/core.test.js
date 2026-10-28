@@ -273,7 +273,7 @@ test('chorus glow is opt-in and settings are bounded without changing existing p
  assert.equal(old.fontSize,34);
  assert.equal(C.normalizeSettings({chorusGlowEnabled:true,chorusGlowIntensity:-10}).chorusGlowIntensity,0);
  assert.equal(C.normalizeSettings({chorusGlowIntensity:200,chorusGlowStyle:'invalid'}).chorusGlowIntensity,100);
- assert.equal(C.normalizeSettings({chorusGlowStyle:'bright'}).chorusGlowStyle,'bright');
+ assert.equal(C.normalizeSettings({chorusGlowStyle:'bright'}).chorusGlowStyle,'standard');
 });
 test('chorus requires a trustworthy bounded start and end',()=>{
  const intervals=C.normalizeChorusIntervals([
