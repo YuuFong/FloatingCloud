@@ -23,9 +23,10 @@
 
 using Microsoft::WRL::ComPtr;
 namespace {
-constexpr size_t N=1024;
+// Match TaskbarLyrics v1.7.4 default spectral resolution.
+constexpr size_t N=2048;
 constexpr size_t RING=8192;
-constexpr size_t BARS=21;
+constexpr size_t BARS=32;
 std::atomic<bool> runFlag{false};
 std::atomic<bool> audioAvailable{false};
 std::thread captureThread;
@@ -34,7 +35,7 @@ std::array<float,RING> ring{};
 size_t writePos=0, written=0;
 unsigned sampleRate=48000;
 std::array<float,BARS> smooth{};
-float adaptivePeak=0.035f;
+float adaptivePeak=0.06f;
 void push(float value) {
     ring[writePos]=std::clamp(value,-1.f,1.f);
     writePos=(writePos+1)%RING;
@@ -53,6 +54,13 @@ void capture() {
         if(SUCCEEDED(hr))hr=enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&device);
         if(SUCCEEDED(hr))hr=device->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(client.GetAddressOf()));
         if(SUCCEEDED(hr))hr=client->GetMixFormat(&mix);
+        std::wstring activeDeviceId;
+        if(device) {
+            LPWSTR deviceId=nullptr;
+            if(SUCCEEDED(device->GetId(&deviceId)) && deviceId){
+                activeDeviceId=deviceId;CoTaskMemFree(deviceId);
+            }
+        }
         bool isFloat=false,isPcm=false;
         if(SUCCEEDED(hr)&&mix) {
             const WORD format=mix->wFormatTag;
@@ -76,8 +84,22 @@ void capture() {
                 std::lock_guard<std::mutex> lock(samplesGate);
                 sampleRate=mix->nSamplesPerSec;
             }
-            const auto endTime=std::chrono::steady_clock::now()+std::chrono::hours(48);
-            while(runFlag.load() && std::chrono::steady_clock::now()<endTime) {
+            auto nextDeviceCheck=std::chrono::steady_clock::now()+std::chrono::milliseconds(500);
+            while(runFlag.load()) {
+                if(std::chrono::steady_clock::now()>=nextDeviceCheck) {
+                    nextDeviceCheck=std::chrono::steady_clock::now()+std::chrono::milliseconds(500);
+                    // Just as in TBL, reconnect when Windows switches the
+                    // default playback device instead of sampling a stale one.
+                    ComPtr<IMMDevice> current;
+                    LPWSTR id=nullptr;
+                    const bool changed=FAILED(enumerator->GetDefaultAudioEndpoint(eRender,eConsole,&current)) ||
+                        !current ||
+                        FAILED(current->GetId(&id)) ||
+                        !id ||
+                        activeDeviceId!=id;
+                    if(id)CoTaskMemFree(id);
+                    if(changed)break;
+                }
                 UINT32 packets=0;
                 if(FAILED(input->GetNextPacketSize(&packets)))break;
                 while(packets && runFlag.load()) {
@@ -157,8 +179,14 @@ void enable(bool on) {
         runFlag.store(false);
         if(captureThread.joinable())captureThread.join();
         audioAvailable.store(false);
-        std::lock_guard<std::mutex> lock(samplesGate);
-        ring.fill(0);written=0;writePos=0;
+        {
+            std::lock_guard<std::mutex> lock(samplesGate);
+            ring.fill(0);written=0;writePos=0;
+        }
+        {
+            std::lock_guard<std::mutex> lock(frameGate);
+            smooth.fill(0);adaptivePeak=0.06f;
+        }
     }
 }
 void shutdown() { enable(false); }
@@ -179,25 +207,35 @@ std::string readJson() {
     fft(data);
     std::array<float,BARS> bands{};
     float peak=0;
+    // TBL v1.7.4 default: logarithmic 28–4000 Hz, 32 bars, 2048 FFT.
+    const double minHz=28.0;
+    const double maxHz=std::min(4000.0,static_cast<double>(rate)*0.5*0.92);
+    const double logSpan=std::log(maxHz/minHz);
     for(size_t i=0;i<BARS;i++){
-        const double lo=55.0*std::pow(13000.0/55.0,static_cast<double>(i)/BARS);
-        const double hi=55.0*std::pow(13000.0/55.0,static_cast<double>(i+1)/BARS);
-        const auto minBin=std::max<size_t>(1,static_cast<size_t>(std::floor(lo*N/rate)));
-        const auto maxBin=std::min<size_t>(N/2,static_cast<size_t>(std::ceil(hi*N/rate)));
-        double total=0;size_t count=0;
-        for(size_t k=minBin;k<=maxBin;k++) {
-            total+=std::abs(data[k])*2.0/N;
+        const double startRatio=static_cast<double>(i)/BARS;
+        const double endRatio=static_cast<double>(i+1)/BARS;
+        const double lo=minHz*std::exp(startRatio*logSpan);
+        const double hi=minHz*std::exp(endRatio*logSpan);
+        const size_t first=std::max<size_t>(1,static_cast<size_t>(std::floor(lo*N/rate)));
+        const size_t last=std::min<size_t>(N/2,static_cast<size_t>(std::ceil(hi*N/rate)));
+        double sum=0;size_t count=0;
+        for(size_t k=first;k<=last;k++){
+            const double freq=k*static_cast<double>(rate)/N;
+            const double weight=std::max(.75, .92+std::log2(std::max(2.0,freq)/minHz)*.01);
+            sum+=std::abs(data[k])*2.0/N*weight;
             count++;
         }
-        bands[i]=static_cast<float>((count?total/count:0)*(1.3+0.045*i));
+        bands[i]=static_cast<float>((count?sum/count:0.0)*(1.2+0.05*i));
         peak=std::max(peak,bands[i]);
     }
     std::lock_guard<std::mutex> lock(frameGate);
-    adaptivePeak=std::clamp(std::max(peak,adaptivePeak*0.97f),0.004f,0.7f);
+    // Keep the same envelope and curve as TBL defaults.
+    adaptivePeak=std::clamp(std::max(peak,adaptivePeak*0.85f),0.012f,0.8f);
     std::ostringstream out;out<<'['<<std::fixed<<std::setprecision(3);
     for(size_t i=0;i<BARS;i++) {
-        float goal=std::clamp((bands[i]/adaptivePeak-0.04f)/0.96f,0.f,1.f);
-        smooth[i]+= (goal>smooth[i]?0.53f:0.22f)*(goal-smooth[i]);
+        const float normalized=std::clamp(bands[i]/adaptivePeak,0.f,1.35f);
+        const float goal=std::clamp(std::pow(normalized,1.5f),0.f,1.f);
+        smooth[i]+= (goal>smooth[i]?0.86f:0.48f)*(goal-smooth[i]);
         if(i)out<<',';
         out<<smooth[i];
     }
