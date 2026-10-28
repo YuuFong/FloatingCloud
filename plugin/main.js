@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.22-beta';
+  const VERSION = '0.4.23-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -421,6 +421,10 @@
      The 90%-alpha played segment is a separate clipped/masked layer.
      Without scanning enabled, retain the normal 90%-alpha primary color. */
   .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next)}
+  /* Keep the unplayed glyphs at their next-line color throughout promotion.
+     The clipped progress layer alone becomes bright; otherwise the whole row
+     flashes primary before draw() changes it to the scan-enabled base color. */
+  .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
   .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   /* Playback-safe renderer: no per-frame mask-image or mask gradients.
