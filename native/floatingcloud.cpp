@@ -21,6 +21,7 @@
 #include <memory>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -40,6 +41,7 @@ constexpr UINT kLock = WM_APP + 105;
 constexpr UINT kResize = WM_APP + 106;
 constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
+constexpr UINT kSetPosition = WM_APP + 109;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
 constexpr int kUnlockButtonId = 2402;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
@@ -55,6 +57,7 @@ bool locked = false; // accessed only from window thread
 bool lyricPointerDown=false, lyricDidDrag=false;
 bool settingsPopupOpen=false;
 bool controlsVisible=false;
+std::atomic<bool> positionChanged{false};
 HWND unlockButton=nullptr;
 ULONGLONG hoveredSince=0;
 POINT lastHoverPoint{};
@@ -98,6 +101,32 @@ void sendToWeb(const char* type, const std::string& payload) {
     std::string json=std::string("{\"type\":\"")+type+"\",\"payload\":"+payload+"}";
     std::wstring wide=toWide(json);
     if (!wide.empty()) web->PostWebMessageAsJson(wide.c_str());
+}
+// Coords are Win32 virtual-desktop coordinates, including negative monitor X/Y.
+// Clamp restored positions to the nearest connected monitor's working area.
+// Repositioning after a resolution/monitor change can never strand the window.
+POINT visiblePosition(int x, int y) {
+    RECT proposed{x,y,x+width,y+height};
+    const HMONITOR monitor=MonitorFromRect(&proposed,MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{sizeof(mi)};
+    if(monitor && GetMonitorInfoW(monitor,&mi)) {
+        const RECT& area=mi.rcWork;
+        const int left=static_cast<int>(area.left);
+        const int top=static_cast<int>(area.top);
+        const int rightmost=std::max(left,static_cast<int>(area.right)-width);
+        const int bottommost=std::max(top,static_cast<int>(area.bottom)-height);
+        x=std::clamp(x,left,rightmost);
+        y=std::clamp(y,top,bottommost);
+    }
+    return POINT{x,y};
+}
+void keepWindowVisible(HWND h) {
+    if(!h)return;
+    RECT wr{};
+    if(!GetWindowRect(h,&wr))return;
+    const POINT pt=visiblePosition(wr.left,wr.top);
+    if(pt.x!=wr.left||pt.y!=wr.top)
+        SetWindowPos(h,HWND_TOPMOST,pt.x,pt.y,0,0,SWP_NOSIZE|SWP_NOACTIVATE);
 }
 void sizeController() {
     if (!controller || !hwnd.load()) return;
@@ -324,6 +353,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             if(lyricPointerDown) {
                 lyricPointerDown=false;
                 if(GetCapture()==h) ReleaseCapture();
+                if(lyricDidDrag) positionChanged.store(true);
                 // Short click toggles toolbar; drag only moves the window.
                 if(!lyricDidDrag) sendToWeb("interaction", "{\"lyricClick\":true}");
                 return 0;
@@ -355,11 +385,21 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case kResize: {
             width=std::max(300,std::min(1200,static_cast<int>(wp)));
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
+            keepWindowVisible(h);
             return 0;
         }
         case kHeight: {
             height=std::max(110,std::min(400,static_cast<int>(wp)));
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
+            keepWindowVisible(h);
+            return 0;
+        }
+        case kSetPosition: {
+            const int x=static_cast<int>(static_cast<INT_PTR>(wp));
+            const int y=static_cast<int>(lp);
+            const POINT safe=visiblePosition(x,y);
+            SetWindowPos(h,HWND_TOPMOST,safe.x,safe.y,0,0,
+                SWP_NOSIZE|SWP_NOACTIVATE);
             return 0;
         }
         case kShutdown:case WM_CLOSE:
@@ -476,6 +516,29 @@ static const char* setHeight(void** a){
     return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
         static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+// Store only x,y in plugin configuration (never store screen-dependent HWND).
+static const char* setPosition(void** a) {
+    HWND h=fc::hwnd.load();
+    if(!h||!a||!a[0])return "unavailable";
+    const char* raw=static_cast<const char*>(a[0]);
+    long long x=0,y=0;char trailing=0;
+    if(std::sscanf(raw,"%lld,%lld%c",&x,&y,&trailing)!=2 ||
+       x < -100000 || x > 100000 || y < -100000 || y > 100000)return "error";
+    return PostMessageW(h,fc::kSetPosition,static_cast<WPARAM>(static_cast<INT_PTR>(x)),
+        static_cast<LPARAM>(y))?"ok":"unavailable";
+}
+static const char* getPosition(void**) {
+    static thread_local std::string value;
+    HWND h=fc::hwnd.load();
+    RECT wr{};
+    if(!h || !IsWindow(h) || !GetWindowRect(h,&wr))return "";
+    value=std::to_string(wr.left)+","+std::to_string(wr.top);
+    return value.c_str();
+}
+static const char* movedPosition(void**) {
+    if(!fc::positionChanged.exchange(false))return "";
+    return getPosition(nullptr);
+}
 static const char* spectrumEnabled(void** a) {
     if(!a||!a[0])return "error";
     fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
@@ -518,6 +581,9 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
+    api->addNativeAPI(stringArg,1,"floatingcloud.setPosition",setPosition);
+    api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
+    api->addNativeAPI(nullptr,0,"floatingcloud.movedPosition",movedPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.spectrumEnabled",spectrumEnabled);
     api->addNativeAPI(stringArg,1,"floatingcloud.lyricsLookup",lyricsLookup);
     api->addNativeAPI(nullptr,0,"floatingcloud.lyricsPoll",lyricsPoll);

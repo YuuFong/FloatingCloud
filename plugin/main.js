@@ -205,6 +205,31 @@
       }
     }
     probe() { return this.pingOk = this.call('ping') === 'native-loaded'; }
+    // BetterNCM persists plugin config across NCM restart; no filesystem permissions.
+    // The signed coordinates also support a secondary display placed left/up.
+    parsePosition(value) {
+      if(typeof value !== 'string')return null;
+      const parts=value.split(',');
+      if(parts.length!==2)return null;
+      const x=Number(parts[0]),y=Number(parts[1]);
+      if(!Number.isInteger(x)||!Number.isInteger(y) ||
+         Math.abs(x)>100000||Math.abs(y)>100000)return null;
+      return {x,y};
+    }
+    rememberPosition(value=this.call('getPosition')) {
+      const position=this.parsePosition(value);
+      if(!position)return;
+      const saved=plugin.getConfig('desktop-position-v1',null);
+      if(saved?.x===position.x && saved?.y===position.y)return;
+      plugin.setConfig('desktop-position-v1',position);
+    }
+    restorePosition() {
+      const saved=plugin.getConfig('desktop-position-v1',null);
+      if(!saved || !Number.isInteger(saved.x) || !Number.isInteger(saved.y) ||
+        Math.abs(saved.x)>100000||Math.abs(saved.y)>100000)return;
+      // Native clamps stale positions to the nearest active monitor's work area.
+      this.call('setPosition',[saved.x+','+saved.y]);
+    }
     status() {
       if (!this.pingOk && !this.probe()) return 'native.dll 未加载：请安装经过 Windows 构建的 .plugin';
       const result = this.call('status');
@@ -214,9 +239,11 @@
     enable() {
       if (!this.probe()) {this.message='native.dll 未加载';return false;}
       if (this.call('open') !== 'started') {this.message='Native 窗口创建失败';return false;}
-      this.enabled = true;this.call('show');
+      this.enabled = true;
       this.applySettings(settings);
+      this.restorePosition(); // width/height messages precede position restore
       this.call('lock', [String(this.locked)]);
+      this.call('show');
       this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;this.sentSearching=null;
       if (!this.timer) this.timer=setInterval(()=>this.tick(),100);
       this.tick();
@@ -224,6 +251,7 @@
       this.message='窗口正在打开';return true;
     }
     disable() {
+      if(this.enabled)this.rememberPosition();
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
@@ -243,6 +271,9 @@
     tick() {
       if (!this.enabled)return;
       const action = this.call('poll');
+      // A distinct dirty-position channel avoids overwriting playback actions.
+      const moved=this.call('movedPosition');
+      if(moved)this.rememberPosition(moved);
       if (action === 'close') {this.disable();return;}
       if (action === 'lock') {this.locked=true;plugin.setConfig('desktop-locked-v1',true);}
       if (action === 'unlock') {this.unlock();}
@@ -286,6 +317,7 @@
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
+      if(this.enabled)this.rememberPosition();
       clearInterval(this.timer);this.timer=null;
       this.call('spectrumEnabled',['false']);this.spectrumCapture=false;this.call('shutdown');
     }
@@ -545,7 +577,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.4（锁定悬停解锁、加载态与翻译测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.5（歌词窗口位置记忆测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
