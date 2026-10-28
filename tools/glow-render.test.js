@@ -23,7 +23,7 @@ test('editing glow preserves the rendered lyric row and active roll state',()=>{
   const end=source.indexOf('  plugin.onConfig(() =>',start);
   assert.ok(start>0&&end>start);
   const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
-    PresentationCoordinator:class{cancelTransition(){}}
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
   }},el:()=>new FakeNode(),clearTimeout};
   vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
   const stage=new FakeNode(),view=new context.RollingView(stage);
@@ -52,7 +52,7 @@ test('finishing a roll reuses the incoming row instead of rebuilding its glyphs'
   const start=source.indexOf('  class RollingView {');
   const end=source.indexOf('  plugin.onConfig(() =>',start);
   const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
-    PresentationCoordinator:class{cancelTransition(){}}
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
   }},el:()=>new FakeNode(),clearTimeout};
   vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
   const view=new context.RollingView(new FakeNode());
@@ -65,4 +65,21 @@ test('finishing a roll reuses the incoming row instead of rebuilding its glyphs'
   assert.equal(view.rows[0].children[0],incomingGlyph);
   assert.equal(view.rows[1].children[0],followingGlyph);
   assert.equal(view.rows[0].className,'fc-line fc-line-primary');
+});
+
+test('preview toggle does not disable desktop lyric rendering',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
+  }},el:()=>new FakeNode(),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const stage=new FakeNode(),view=new context.RollingView(stage);
+  view.lines=[{time:0,duration:5000,text:'visible',words:[]}];
+  view.applySettings(Core.normalizeSettings({enabled:false,lineGap:20,chorusGlowEnabled:true}));
+  view.update(0,0,0,true);
+  assert.equal(stage.style.opacity,'1');
+  assert.equal(stage.style['--fc-toolbar-gap'],'20px');
+  assert.equal(stage.classList.contains('fc-chorus-glow'),true);
 });

@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.29-beta';
+  const VERSION = '0.4.30-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -45,13 +45,14 @@
   const setSettings = (patch) => {
     const glowOnly=Object.keys(patch).length>0 && Object.keys(patch).every(key=>
       ['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'].includes(key));
+    const previewOnly=Object.keys(patch).length>0 && Object.keys(patch).every(key=>key==='enabled');
     const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders,
       previousGlow=Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0);
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
-    try { desktop?.applySettings(settings,glowOnly); } catch (e) { console.warn(e); }
+    try { if(!previewOnly)desktop?.applySettings(settings,glowOnly); } catch (e) { console.warn(e); }
     if(previousMode!==settings.lyricsMode ||
        previousFolders!==settings.localLyricsFolders) live?.refresh();
     else if(previousGlow!==Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0) &&
@@ -357,7 +358,7 @@
       // Set dimensions BEFORE HWND creation: the saved x coordinate belongs
       // to the saved window width, not to a temporary 740px default.
       const pitch=Math.ceil(settings.fontSize*1.35+settings.lineGap);
-      this.call('setInitialSize',[Math.round(settings.width)+','+(92+pitch*2+8)]);
+      this.call('setInitialSize',[Math.round(settings.width)+','+(92+settings.lineGap+pitch*2+8)]);
       const saved=plugin.getConfig('desktop-position-v1',null);
       if(saved && Number.isInteger(saved.x) && Number.isInteger(saved.y) &&
         Math.abs(saved.x)<=100000 && Math.abs(saved.y)<=100000)
@@ -392,7 +393,7 @@
       if(glowOnly)return;
       this.call('width',[String(Math.round(s.width))]);
       const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
-      this.call('height',[String(92+pitch*2+8)]);
+      this.call('height',[String(92+s.lineGap+pitch*2+8)]);
     }
     tick() {
       if (!this.enabled)return;
@@ -466,7 +467,7 @@
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
-  .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-track{position:absolute;top:32px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
      row, never an opaque drop-shadow/outline that changes apparent opacity. */
@@ -561,6 +562,7 @@
       this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
       const v = this.stage.style;
       v.setProperty('--fc-pitch', this.pitch + 'px');
+      v.setProperty('--fc-toolbar-gap',s.lineGap+'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
       v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
       v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
@@ -577,7 +579,7 @@
       // the faithful TBL color mode.
       v.setProperty('--fc-align', s.align);
       v.fontFamily = s.font;
-      v.height = (this.pitch * 2) + 'px'; // exact viewport: row 3 is fully clipped
+      v.height = (this.pitch * 2 + 32) + 'px'; // top glow gutter; row 3 stays clipped
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
@@ -708,9 +710,8 @@
       };
     }
     update(index, progress, timeMs, chorusActive=false) {
-      this.setGlow(Boolean(chorusActive && this.settings?.enabled && this.settings?.chorusGlowEnabled &&
+      this.setGlow(Boolean(chorusActive && this.settings?.chorusGlowEnabled &&
         this.settings?.enableWordScan && this.settings?.chorusGlowIntensity>0));
-      if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
       this.stage.style.opacity='1'; this.lastPosition=timeMs;
       if (index<0) {index=0;progress=0;}
       const target=this.frameAt(index,progress,timeMs);
@@ -996,6 +997,11 @@
         raf = requestAnimationFrame(drawFrame); return;
       }
       mountedOnce = true; offscreenSince = 0;
+      stage.style.visibility=settings.enabled?'visible':'hidden';
+      if(!settings.enabled){
+        status.textContent='设置页预览已关闭；桌面浮窗继续显示歌词';
+        raf=requestAnimationFrame(drawFrame);return;
+      }
       const song = live;
       const showingReal = !useDemo;
       const lines = showingReal ? (song?.lines || []) : DEMO;

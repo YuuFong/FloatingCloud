@@ -31,8 +31,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
 #resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}
 #root.width-adjusting #resize-guide{opacity:1}
-#stage{z-index:2;width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
-#stage .fc-track{top:0}
+#stage{z-index:2;width:100%;position:absolute;top:calc(60px + var(--fc-toolbar-gap,12px));left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#stage .fc-track{top:32px}
 /* TBL's single text-shadow belongs to all rows; do not override its
    alpha-based primary/translation/secondary palette with FC's old filter. */
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
