@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FloatingCloudHost VERSION 0.4.8 LANGUAGES CXX)
+project(FloatingCloudHost VERSION 0.4.9 LANGUAGES CXX)
 if(NOT WIN32)
   message(FATAL_ERROR "FloatingCloud native host must be built on Windows x64")
 endif()
