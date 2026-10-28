@@ -4,12 +4,20 @@
 
 ## 安装
 
-1. 从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-v0.4.37.plugin`。
-2. 在 BetterNCM 中安装插件并重启网易云音乐。
-3. 在插件设置中打开桌面浮窗。需要译文时开启“外文歌曲优先显示对应翻译”。
+**普通用户（推荐）**
+
+从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-Setup.exe`（提供该附件的版本），双击运行。Setup 会检查网易云版本与 BetterNCM、在线下载 FloatingCloud 并部署到插件目录；缺少 BetterNCM 时会引导打开其官方安装器。具体步骤、限制见 [安装器说明](installer/README.md)。
+
+**手动安装**
+
+1. 从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-v0.4.37.plugin` 或最新版本的 `.plugin` 文件。
+2. 将 `.plugin` 文件放入 BetterNCM 的插件目录（通常是 `C:\betterncm\plugins`，也可能使用自定义数据目录）；**不要解压**。
+3. 重启网易云音乐，在插件设置中打开桌面浮窗。需要译文时开启“外文歌曲优先显示对应翻译”。
 
 当前构建面向 Windows x64、网易云音乐 3.1.42 和 BetterNCM。歌词获取依次尝试 TaskbarLyrics 的 QQ 音乐、酷狗、网易云和 LRCLIB 来源，也支持本地歌词文件。歌词来源和译文可用性会因歌曲而异。
 
 ## 构建
 
 Windows 环境下运行 `tools/build-windows.ps1`；脚本会构建原生组件、歌词获取助手并打包 `.plugin`。本项目使用的 TaskbarLyrics 代码及许可见 `plugin/THIRD_PARTY_LICENSE.txt`。
+
+安装器可在 GitHub Actions 的 **Build FloatingCloud Setup** 工作流中生成，或参照 [安装器开发文档](installer/README.md) 编译。
