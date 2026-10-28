@@ -30,4 +30,4 @@ if($LASTEXITCODE -ne 0){throw 'TaskbarLyrics .NET lyric provider build failed'}
 Copy-Item "$root/build/lyric-helper/FloatingCloudLyrics.exe" "$root/plugin/FloatingCloudLyrics.exe" -Force
 
 python "$root/tools/pack_plugin.py"
-Write-Host 'Completed: FloatingCloud-v0.4.4.plugin'
+Write-Host 'Completed: FloatingCloud-v0.4.5.plugin'
