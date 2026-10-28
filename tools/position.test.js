@@ -62,15 +62,15 @@ function boot(options={}) {
     beforeUnload:()=>beforeUnload?.()
   };
 }
-test('saved secondary-monitor coordinates are restored after size but before show',()=>{
+test('saved secondary-monitor coordinates and user width are staged before HWND construction',()=>{
  const h=boot({'desktop-position-v1':{x:-1250,y:340}});
  const ids=h.calls.map(c=>c.id);
  assert.ok(ids.indexOf('floatingcloud.setInitialPosition')<ids.indexOf('floatingcloud.open'));
  assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialPosition').args[0],'-1250,340');
- assert.ok(ids.indexOf('floatingcloud.width')<ids.indexOf('floatingcloud.setPosition'));
- assert.ok(ids.indexOf('floatingcloud.height')<ids.indexOf('floatingcloud.setPosition'));
- assert.ok(ids.indexOf('floatingcloud.setPosition')<ids.indexOf('floatingcloud.show'));
- assert.equal(h.calls.find(c=>c.id==='floatingcloud.setPosition').args[0],'-1250,340');
+ assert.ok(ids.indexOf('floatingcloud.setInitialSize')<ids.indexOf('floatingcloud.open'));
+ assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialSize').args[0],'740,194');
+ assert.equal(h.calls.some(c=>c.id==='floatingcloud.setPosition'),false);
+ assert.ok(ids.indexOf('floatingcloud.width')<ids.indexOf('floatingcloud.show'));
 });
 test('drag end writes position once and survives closing/restarting',()=>{
  const h=boot();
@@ -85,7 +85,7 @@ test('drag end writes position once and survives closing/restarting',()=>{
  assert.equal(h.saved['desktop-position-v1'].x,-830);
  assert.equal(h.saved['desktop-position-v1'].y,510);
  const restarted=boot({...h.saved});
- assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setPosition').args[0],'-830,510');
+ assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setInitialPosition').args[0],'-830,510');
 });
 test('malformed/offscale positions are ignored without breaking startup',()=>{
  for(const bad of [{x:NaN,y:5},{x:100001,y:0},{x:'200',y:100},'200,300']) {
@@ -105,7 +105,7 @@ test('startup/resize/OS-induced window coordinates never rewrite saved placement
  assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,0);
  assert.equal(h.calls.filter(c=>c.id==='floatingcloud.getPosition').length,0);
  const restarted=boot({...h.saved});
- assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setPosition').args[0],'-925,260');
+ assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setInitialPosition').args[0],'-925,260');
 });
 test('drag completion just before shutdown is flushed once to config',()=>{
  const h=boot({'desktop-position-v1':{x:120,y:150}});
@@ -130,7 +130,7 @@ test('dragged coordinate is staged BEFORE creating HWND on every restart',()=>{
    const events=restart.calls.map(x=>x.id);
    assert.ok(events.indexOf('floatingcloud.setInitialPosition')<events.indexOf('floatingcloud.open'));
    assert.equal(restart.calls.find(x=>x.id==='floatingcloud.setInitialPosition').args[0],'-700,206');
-   assert.equal(restart.calls.find(x=>x.id==='floatingcloud.setPosition').args[0],'-700,206');
+   assert.equal(restart.calls.some(x=>x.id==='floatingcloud.setPosition'),false);
    restart.repositionWithoutDrag(-700,206+27*(i+1));
    restart.unload();
    assert.equal(restart.saved['desktop-position-v1'].y,206);
@@ -143,4 +143,22 @@ test('settings panel describes saved and actual window coordinates for drift rep
  const panel=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
  assert.ok(panel.includes('位置存档 '));
  assert.ok(panel.includes('当前窗口 '));
+});
+
+test('custom width must be set before HWND open instead of re-centering after startup',()=>{
+ const h=boot({'appearance-v2':{width:520,fontSize:30,lineGap:12},
+   'desktop-position-v1':{x:280,y:420}});
+ const ids=h.calls.map(x=>x.id);
+ assert.ok(ids.indexOf('floatingcloud.setInitialSize')<ids.indexOf('floatingcloud.setInitialPosition'));
+ assert.ok(ids.indexOf('floatingcloud.setInitialPosition')<ids.indexOf('floatingcloud.open'));
+ assert.equal(h.calls.find(x=>x.id==='floatingcloud.setInitialSize').args[0],'520,194');
+ assert.equal(h.calls.find(x=>x.id==='floatingcloud.setInitialPosition').args[0],'280,420');
+ assert.equal(h.calls.some(x=>x.id==='floatingcloud.setPosition'),false);
+});
+test('native resize anchors the actual live window center and persists resized placement',()=>{
+ const cpp=fs.readFileSync(path.join(__dirname,'../native/floatingcloud.cpp'),'utf8');
+ assert.match(cpp,/centerX=before\.left\+currentWidth\/2/);
+ assert.match(cpp,/nextX=centerX-nextWidth\/2/);
+ assert.match(cpp,/publishPosition\(safe\.x,safe\.y\)/);
+ assert.match(cpp,/width=std::clamp\(initialWidth\.load\(\),300,1200\)/);
 });
