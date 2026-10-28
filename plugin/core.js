@@ -29,6 +29,7 @@
     foregroundMode: 'system', strokeWidth: 1.4,
     shadow: 3, lineGap: 12, align: 'center', width: 740,
     spectrumGap: 3,
+    spectrumMode: 'auto',
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
     enableWordScan: true,
     lyricsMode: 'online-first',
@@ -65,6 +66,8 @@
       shadow: clamp(number(v.shadow, 3), 0, 16),
       lineGap: clamp(number(v.lineGap, 12), 0, 40),
       spectrumGap: clamp(number(v.spectrumGap, 3), 0, 14),
+      spectrumMode: ['auto','force-spectrum','lyrics-only'].includes(v.spectrumMode)
+        ? v.spectrumMode : 'auto',
       align: ['left', 'center', 'right'].includes(v.align) ? v.align : 'center',
       width: clamp(number(v.width, 740), 300, 1200),
       offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
@@ -217,6 +220,22 @@
     return lines.length ? {lines,kind:'lrc',provider:'LRCLIB'} : null;
   }
 
+  // Common music-service placeholder lyrics are not real singing lines.
+  // Keep the match deliberately narrow: an actual song with many lines must
+  // never be turned into a spectrum because one line mentions "纯音乐".
+  function isInstrumentalPlaceholder(line) {
+    const text=String(line?.text||'').normalize('NFKC').trim().toLowerCase()
+      .replace(/[\\s，。！!~～:：·•.()（）\[\]【】_\-–—]/g,'');
+    return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(text);
+  }
+  function shouldDisplaySpectrum(lines, pureMusic=false, searching=false, mode='auto') {
+    if(mode==='lyrics-only')return false;
+    if(mode==='force-spectrum')return true;
+    if(searching)return false;
+    if(pureMusic)return true;
+    if(!Array.isArray(lines)||lines.length===0)return true;
+    return lines.length<=3 && lines.every(isInstrumentalPlaceholder);
+  }
   function resolveIndex(lines, timeMs) {
     if (!lines.length) return -1;
     let left = 0, right = lines.length - 1, best = -1;
@@ -291,5 +310,6 @@
     };
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
-    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
+    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
+    isInstrumentalPlaceholder, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
 });
