@@ -25,6 +25,7 @@ assert '--fc-color' in html and 'fc-line-translation' in html, 'TBL color hierar
 assert 'text-shadow:0 1px 2px rgba(0,0,0,.36)' in html, 'TBL soft text-shadow missing'
 assert 'fc-scan-enabled' in html and 'fc-text-base{color:var(--fc-next)' in html, 'unplayed current lyric words must use TBL secondary tone'
 assert 'mask-image:linear-gradient' in html and 'var(--fc-highlight)' in html, 'TBL layered word-scan overlay missing'
+assert '.fc-text-base{display:block' in html and '.fc-text-highlight{display:block' in html, 'clip/mask needs block-level text layers'
 assert '#stage .fc-line{filter:drop-shadow' not in html, 'old over-dark FC shadow must not override TBL'
 
 assert "length:32" in html, 'TaskbarLyrics 32-band renderer is missing'
