@@ -606,7 +606,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.9（位置直存、TBL 频谱与工具栏优化）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.10（位置恢复、工具栏动画与频谱间距）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -626,7 +626,13 @@
     unlockButton.addEventListener('click',()=>{desktop?.unlock();updateDesktopStatus();});
     function updateDesktopStatus(){
       desktopToggle.textContent=desktop?.enabled?'关闭桌面浮窗':'打开桌面浮窗';
-      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+(desktop?.locked?' · 已锁定':' · 未锁定');
+      const stored=plugin.getConfig('desktop-position-v1',null);
+      const saved=Number.isInteger(stored?.x)&&Number.isInteger(stored?.y)
+        ? stored.x+','+stored.y:'未存档';
+      const actual=desktop?.enabled ? (desktop.call('getPosition')||'不可用') : '未显示';
+      desktopStatus.textContent='桌面歌词：'+(desktop?.status()||'尚未初始化')+
+        (desktop?.locked?' · 已锁定':' · 未锁定')+
+        ' · 位置存档 '+saved+' · 当前窗口 '+actual;
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
     demoWrap.append(tools, desktopStatus); panel.append(demoWrap);
@@ -647,6 +653,7 @@
       ['color','文字颜色','color'],['nextColor','副行颜色','color'],['highlight','扫描高亮颜色','color'],
       ['strokeWidth','描边宽度','range',0,5,.2],['strokeColor','描边颜色','color'],
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
+      ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
       ['align','对齐方式','select',['left','center','right']],
       ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
       ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
