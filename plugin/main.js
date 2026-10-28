@@ -852,6 +852,8 @@
           (result.hasPlugin?'，可以下载安装':'，发布包暂未就绪');
         releaseLink.textContent=result.hasPlugin?'前往下载':'查看发布页';
         releaseLink.hidden=false;
+      } else if(result.aheadOfRelease) {
+        updateStatus.textContent='当前 v'+VERSION+' · 高于 GitHub 最新正式版 v'+result.latestVersion+'（尚未发布）';
       } else {
         updateStatus.textContent='当前 v'+VERSION+' · 已是最新正式版';
       }
