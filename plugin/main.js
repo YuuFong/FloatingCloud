@@ -5,6 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
+  const VERSION = '0.4.19-beta';
   const NcmPath = window.FloatingCloudNcmPath;
   const KEY = 'appearance-v2' /* keep existing users’ saved settings */;
   const DEMO = Core.parseNcmLyrics({
@@ -45,18 +46,21 @@
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
+      this.generation = 0; this.pendingSong = null; this.songTask = null;
     }
     init() {
       const attach = () => {
         const api = window.InfLinkApi;
         if (api && typeof api.getCurrentSong === 'function' && typeof api.addEventListener === 'function') {
           clearInterval(this.retry); this.retry = null; this.api = api;
-          this.attach('songChange', e => this.setTrack(e?.detail ?? api.getCurrentSong()));
+          // InfLink dispatches on the NCM renderer. Never call back into NCM or
+          // the native bridge while its song-change dispatch is on the stack.
+          this.attach('songChange', e => this.queueTrack(e?.detail));
           this.attach('timelineUpdate', e => {
-            const p = e?.detail ?? api.getTimeline();
-            if (Number.isFinite(p?.currentTime)) this.clock.anchor(p.currentTime, api.getPlaybackStatus() === 'Playing');
+            const p = e?.detail;
+            if (Number.isFinite(p?.currentTime)) this.clock.anchor(p.currentTime);
           });
-          this.attach('playStateChange', e => this.clock.setPlaying((e?.detail ?? api.getPlaybackStatus()) === 'Playing'));
+          this.attach('playStateChange', e => { if (e?.detail != null) this.clock.setPlaying(e.detail === 'Playing'); });
           this.clock.setPlaying(api.getPlaybackStatus() === 'Playing');
           const timeline = api.getTimeline();
           if (timeline && Number.isFinite(timeline.currentTime)) this.clock.anchor(timeline.currentTime);
@@ -80,10 +84,21 @@
       this.api.addEventListener(name, fn);
       this.listeners.push([name, fn]);
     }
+    queueTrack(song) {
+      this.pendingSong = song;
+      if (this.songTask) return;
+      this.songTask = setTimeout(() => {
+        this.songTask = null;
+        const next = this.pendingSong; this.pendingSong = null;
+        this.setTrack(next ?? this.api?.getCurrentSong?.());
+      }, 0);
+    }
     async setTrack(song) {
+      if (!song || typeof song !== 'object') return;
       const id = Number(song?.ncmId ?? song?.id);
       const key = id > 0 ? `ncm:${id}:${String(song?.trackId || '')}` : `local:${String(song?.trackId || '')}:${String(song?.songName || song?.name || '')}:${String(song?.authorName || song?.artist || '')}`;
       if (key === this.trackKey) return;
+      const generation = ++this.generation;
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
       this.durationMs = Number(song?.duration ?? 0);
@@ -189,17 +204,17 @@
             } else if(searchResp.status!==404)throw Error('LRCLIB search HTTP '+searchResp.status);
           } else throw Error('LRCLIB HTTP '+response.status);
         }
-        if(this.trackKey!==key || ctrl.signal.aborted) return;
+        if(this.generation!==generation || ctrl.signal.aborted) return;
         if(result?.lines?.length) {
           this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
           this.cache.set(key,result);
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
         } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
       } catch(e) {
-        if(this.trackKey===key) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
+        if(this.generation===generation) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
         clearTimeout(timer);
-        if(this.trackKey===key) {this.busy=false;notify();}
+        if(this.generation===generation) {this.busy=false;notify();}
       }
     }
     refresh() {
@@ -210,6 +225,7 @@
       this.setTrack(song);
     }
     destroy() {
+      ++this.generation; clearTimeout(this.songTask); this.songTask=null;
       clearInterval(this.retry); this.cancel?.abort();
       for (const [name, fn] of this.listeners) this.api?.removeEventListener(name, fn);
       this.listeners = [];
@@ -640,7 +656,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.15 Beta（播放稳定性与高亮对比度修复）'));
+    panel.append(el('h2', '', `FloatingCloud · 歌词显示 v${VERSION}`));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);

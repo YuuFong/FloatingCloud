@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "name": "FloatingCloud",
   "slug": "floatingcloud-lite",
-  "version": "0.4.15-beta",
+  "version": "0.4.19-beta",
   "author": "FloatingCloud",
   "description": "修复播放卡顿风险：WASAPI 切换从网易云主渲染线程迁出、降低频谱开销，撤回昂贵的高频动态遮罩并提高逐词高亮对比度。",
   "type": "extension",
