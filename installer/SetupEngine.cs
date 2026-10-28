@@ -296,13 +296,15 @@ internal static class SetupEngine
             "尚未识别 BetterNCM 插件目录。请先启动一次装有 BetterNCM 的网易云，或手动选择现有的 plugins 文件夹。");
 
         Directory.CreateDirectory(LocalData);
-        var staging=Path.Combine(LocalData,"staging");
+        // Keep temporary plugin files on the SAME volume as plugins:
+        // rename into place remains atomic for custom D:/E: installations.
+        var staging=Path.Combine(folder,".fc-setup-"+Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
         var transaction=Path.Combine(LocalData,"Backups",DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
         Directory.CreateDirectory(transaction);
         var tempFc=Path.Combine(staging,Guid.NewGuid().ToString("N")+".part");
         var tempInf=Path.Combine(staging,Guid.NewGuid().ToString("N")+".part");
-        var backups=new List<(string Original,string Saved)>();
+        var backups=new List<(string Original,string Parked,string Saved)>();
         var deployed=new List<string>();
         try
         {
@@ -341,8 +343,12 @@ internal static class SetupEngine
                 var saved=Path.Combine(transaction,Path.GetFileName(path));
                 // Distinct manifest-matched filenames should not collide.
                 if(File.Exists(saved))throw new IOException("备份文件名冲突："+saved);
-                File.Move(path,saved);
-                backups.Add((path,saved));
+                // Persistent copy may live on another drive; park the original
+                // in the same-volume staging area until commit succeeds.
+                var parked=Path.Combine(staging,"previous-"+Guid.NewGuid().ToString("N")+".bak");
+                File.Copy(path,saved);
+                File.Move(path,parked);
+                backups.Add((path,parked,saved));
             }
             File.Move(tempFc,fcTarget);
             deployed.Add(fcTarget);
@@ -351,6 +357,7 @@ internal static class SetupEngine
                 File.Move(tempInf,infTarget);
                 deployed.Add(infTarget);
             }
+            foreach(var (_,parked,_) in backups)TryDelete(parked);
             report("安装完成：FC 和所需插件已部署到 "+folder);
             report("旧版本已备份至 "+transaction);
             report("请重新启动网易云音乐加载新插件。");
@@ -358,9 +365,16 @@ internal static class SetupEngine
         catch
         {
             foreach(var path in deployed)TryDelete(path);
-            foreach(var (original,saved) in backups.AsEnumerable().Reverse())
+            foreach(var (original,parked,saved) in backups.AsEnumerable().Reverse())
             {
-                try { if(!File.Exists(original)&&File.Exists(saved))File.Move(saved,original); }
+                try
+                {
+                    if(!File.Exists(original))
+                    {
+                        if(File.Exists(parked))File.Move(parked,original);
+                        else if(File.Exists(saved))File.Copy(saved,original);
+                    }
+                }
                 catch { report("恢复旧版失败，请查看备份："+saved); }
             }
             throw;
@@ -369,6 +383,12 @@ internal static class SetupEngine
         {
             TryDelete(tempFc);
             TryDelete(tempInf);
+            try
+            {
+                if(Directory.Exists(staging) &&
+                   !Directory.EnumerateFileSystemEntries(staging).Any())
+                    Directory.Delete(staging);
+            } catch { /* persistent rollback copy is kept in LocalData */ }
         }
     }
 
