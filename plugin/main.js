@@ -639,6 +639,9 @@
         ' · 位置存档 '+saved+' · 当前窗口 '+actual+
         ' · 频谱 '+(desktop?.spectrumActive?'显示中':'未切换')+
         ' · 音频采集 '+(desktop?.spectrumCapture?'已请求':'未请求')+
+        ' / '+(desktop?.spectrumCapture
+          ? (desktop.call('spectrumStatus')==='available'?'设备已就绪':'音频设备尚未就绪')
+          : '待命')+
         ' · 歌词 '+(live?.lines?.length||0)+'行'+(live?.pureMusic?'（纯音乐标记）':'');
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
