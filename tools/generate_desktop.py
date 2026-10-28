@@ -14,14 +14,14 @@ html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
 #root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
-#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:calc(100% - 24px);max-width:680px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:max-content;max-width:calc(100% - 24px);border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
 #root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
 #toolbar .fc-tools-left,#toolbar .fc-tools-right{display:flex;gap:4px;align-items:center;min-width:0}
-/* Both side slots have exactly the same width. Spread items toward their
-   OUTER edges, not the play button, so the -0.5s left and × right edges
-   are precisely equidistant from the central play/pause axis. */
+/* Compact intrinsic-width toolbar with two equal flex columns: the
+   outermost -0.5s and × edges are equidistant from the central play axis.
+   Do not stretch the toolbar to the full lyric window width. */
 #toolbar .fc-tools-left,#toolbar .fc-tools-right{justify-content:space-between}
 @media(max-width:450px){
  #toolbar .fc-tools-left,#toolbar .fc-tools-right{gap:1px}
