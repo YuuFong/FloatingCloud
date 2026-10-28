@@ -41,6 +41,7 @@
     constructor() {
       this.api = null; this.trackKey = ''; this.title = '';
       this.lines = []; this.kind = ''; this.error = ''; this.busy = false; this.pureMusic=false;
+      this.trackInstrumental=false;this.instrumentalHint='';
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
@@ -86,6 +87,15 @@
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
       this.durationMs = Number(song?.duration ?? 0);
+      // InfLink-rs exposes basic metadata; when available, read NCM's own
+      // playing-song "mark" / nolyric without making an external API request.
+      let ncmSong=null;
+      try {
+        const playing=window.betterncm?.ncm?.getPlayingSong?.();
+        if(playing && Number(playing.id)===id)ncmSong=playing;
+      } catch(_){}
+      this.trackInstrumental=Core.isNcmInstrumental(song)||Core.isNcmInstrumental(ncmSong);
+      this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
       this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
@@ -327,7 +337,8 @@
       // "纯音乐，请欣赏" placeholder. Respect both; manual mode is an escape
       // hatch when a third-party source assigns bogus lyrics to an instrumental.
       const shouldSpectrum=Boolean(song?.trackKey &&
-        Core.shouldDisplaySpectrum(song?.lines,song?.pureMusic,searching,settings.spectrumMode));
+        Core.shouldDisplaySpectrum(song?.lines,song?.pureMusic,searching,settings.spectrumMode,
+          song?.trackInstrumental));
       const shouldCapture=shouldSpectrum && Boolean(song?.clock.isPlaying());
       if(shouldCapture!==this.spectrumCapture) {
         this.spectrumCapture=shouldCapture;
@@ -365,12 +376,14 @@
   .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
   .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
-  .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
-  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
+  /* Follow TBL v1.7.4: primary .90 × .98, translation .70 × 1,
+     next .60 × .72. An opaque outline would defeat alpha hierarchy. */
+  .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale));-webkit-text-stroke:0 transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.36))}
   .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
-  .fc-line-secondary{color:var(--fc-next);opacity:1;transform:scale(var(--fc-secondary-scale))}
-  .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:1;transform:scale(1)}
+  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale));-webkit-text-stroke:0 transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.36))}
+  .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
@@ -610,7 +623,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.12 Beta（定位与纯音乐频谱修复）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.13 Beta（纯音乐自动频谱与 TBL 配色）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -642,7 +655,10 @@
         ' / '+(desktop?.spectrumCapture
           ? (desktop.call('spectrumStatus')==='available'?'设备已就绪':'音频设备尚未就绪')
           : '待命')+
-        ' · 歌词 '+(live?.lines?.length||0)+'行'+(live?.pureMusic?'（纯音乐标记）':'');
+        ' · 歌词 '+(live?.lines?.length||0)+'行'+
+        (live?.pureMusic?'（歌词源纯音乐）':'')+
+        (live?.trackInstrumental?'（网易云纯音乐标记）':'')+
+        (Core.isInstrumentalRecord(live?.lines)?'（占位词+制作信息）':'');
     }
     tools.append(demoButton, refreshButton, resetButton, desktopToggle, unlockButton);
     demoWrap.append(tools, desktopStatus); panel.append(demoWrap);
