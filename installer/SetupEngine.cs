@@ -146,9 +146,11 @@ internal static class SetupEngine
         };
         foreach(var path in candidates)
             if(Directory.Exists(path))return path;
-        // BetterNCM v1.x typically creates C:\betterncm on its first launch.
-        // Do not create a guessed directory without asking the user to confirm.
-        return installed ? null : null;
+        // If BetterNCM's known data root exists, it is safe to initialize
+        // its plugins child folder on first setup. Otherwise prompt the user.
+        if(installed && Directory.Exists(@"C:\betterncm"))
+            return @"C:\betterncm\plugins";
+        return null;
     }
 
     private static bool IsPluginDir(string? directory)
@@ -283,6 +285,13 @@ internal static class SetupEngine
             "需要 Windows x64 网易云音乐 3.1.42；请选择正确的客户端安装位置。");
         if(!state.BetterNcmPresent)throw new InvalidOperationException("请先完成官方 BetterNCM 安装。");
         var folder=state.PluginDirectory;
+        if(!IsPluginDir(folder))
+        {
+            var knownDefault=string.Equals(folder,@"C:\betterncm\plugins",
+                StringComparison.OrdinalIgnoreCase);
+            if(knownDefault && Directory.Exists(@"C:\betterncm"))
+                Directory.CreateDirectory(folder!);
+        }
         if(!IsPluginDir(folder))throw new InvalidOperationException(
             "尚未识别 BetterNCM 插件目录。请先启动一次装有 BetterNCM 的网易云，或手动选择现有的 plugins 文件夹。");
 
