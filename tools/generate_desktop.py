@@ -111,12 +111,31 @@ applySpectrumGeometry();
 const spectrumBars=Array.from({length:32},(_,i)=>{
  const bar=document.createElement('span');bar.dataset.index=String(i);spectrumEl.append(bar);return bar;
 });
-let spectrumTargets=spectrumBars.map(()=>0),spectrumVisuals=spectrumBars.map(()=>0),lastSpectrumTime=0;
+let spectrumTargets=spectrumBars.map(()=>0),spectrumVisuals=spectrumBars.map(()=>0),lastSpectrumTime=0,spectrumRendered=false;
 function renderSpectrumFrame(now){
+ // A native lyric window used to write 32 DOM bar heights at 60fps even
+ // during ordinary songs. Only touch the spectrum DOM when it is visible.
+ if(!pureMusic){
+   if(spectrumRendered){
+     spectrumRendered=false;
+     spectrumTargets.fill(0);spectrumVisuals.fill(0);
+     spectrumBars.forEach(bar=>{bar.style.height='8px'});
+   }
+   lastSpectrumTime=0;
+   requestAnimationFrame(renderSpectrumFrame);
+   return;
+ }
+ // 30fps cap reduces WebView2 layout/compositor pressure while keeping
+ // spectrum smooth on lower-end Windows GPUs. Lyrics stay at native rAF rate.
+ if(lastSpectrumTime && now-lastSpectrumTime<30){
+   requestAnimationFrame(renderSpectrumFrame);
+   return;
+ }
+ spectrumRendered=true;
  const elapsed=lastSpectrumTime?Math.max(.5,Math.min(2.4,(now-lastSpectrumTime)/16.67)):1;
  lastSpectrumTime=now;
  spectrumBars.forEach((bar,i)=>{
-   const target=pureMusic&&playStatus?(spectrumTargets[i]||0):0;
+   const target=playStatus?(spectrumTargets[i]||0):0;
    const old=spectrumVisuals[i],rate=target>old?.70:.35;
    const value=old+(target-old)*(1-Math.pow(1-rate,elapsed));
    spectrumVisuals[i]=value;
