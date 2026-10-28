@@ -400,7 +400,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
             if(wp==kSpectrumUpdateTimer){
-                // TBL-like ~60 fps spectral updates, independent of JS's
+                // Moderate ~30 fps spectral updates, independent of JS's
                 // slower playback state/timeline polling.
                 if(visible && webReady && fc_spectrum::available())
                     sendToWeb("spectrum",fc_spectrum::readJson());
@@ -579,7 +579,7 @@ DWORD WINAPI windowThread(LPVOID) {
         0,0,32,32,h,nullptr,module,nullptr);
     if(unlockButton) SetLayeredWindowAttributes(unlockButton,RGB(1,2,3),0,LWA_COLORKEY);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
-    SetTimer(h,kSpectrumUpdateTimer,16,nullptr);
+    SetTimer(h,kSpectrumUpdateTimer,33,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
