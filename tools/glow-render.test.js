@@ -105,3 +105,28 @@ test('timed words remain in word mode when punctuation is absent from tokens',()
   view.renderScan(1,1000,view.scanRows[0]);
   assert.equal(view.scanRows[0].node.classList.contains('fc-feather-active'),false);
 });
+
+test('mixed-language track keeps TBL translation placeholder on missing lines and after promotion',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){} setCurrentFrame(){}}
+  }},el:(_tag,className,content)=>Object.assign(new FakeNode(),{className,textContent:content}),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const view=new context.RollingView(new FakeNode());
+  view.lines=[
+    {time:0,duration:3000,text:'中文 English',translation:'Chinese English',words:[]},
+    {time:3000,duration:3000,text:'下一句',translation:'',words:[]},
+    {time:6000,duration:3000,text:'再下一句',translation:'',words:[]}
+  ];
+  view.index=0;
+  view.applySettings(Core.normalizeSettings({showTranslation:true}));
+  assert.equal(view.pairMode,true);
+  assert.equal(view.rows[1].className,'fc-line fc-line-translation');
+  assert.equal(view.rows[3].className,'fc-line fc-line-translation fc-translation-placeholder');
+  assert.equal(view.rows[3].children[0].children[0].textContent,'…');
+  view.promote(1,view.generation);
+  assert.equal(view.rows[1].className,'fc-line fc-line-translation fc-translation-placeholder');
+  assert.equal(view.rows[1].children[0].children[0].textContent,'…');
+});

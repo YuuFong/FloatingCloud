@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.34-beta';
+  const VERSION = '0.4.35-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -479,6 +479,7 @@
      60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-translation.fc-translation-placeholder{opacity:.55}
   .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
   .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
@@ -627,12 +628,13 @@
     renderRow(rowIndex, lineIndex, translation=false) {
       const r=this.rows[rowIndex],line=this.lines[lineIndex];
       const primary=rowIndex===0 || (this.pairMode && rowIndex===2);
-      r.className='fc-line '+(translation?'fc-line-translation':
+      const missingTranslation=translation&&!String(line?.translation||'').trim();
+      r.className='fc-line '+(translation?'fc-line-translation'+(missingTranslation?' fc-translation-placeholder':''):
         primary?'fc-line-primary':'fc-line-secondary');
       r.replaceChildren();
       const box=el('div','fc-text-box');
       const content=translation
-        ? String(line?.translation||' ')
+        ? (missingTranslation?'…':String(line.translation).trim())
         : String(line?.text|| (rowIndex===0?'暂无歌词':' '));
       box.append(el('span','fc-text-base',content));
       if(!translation)box.append(el('span','fc-text-highlight',content),el('span','fc-text-feather',content));
@@ -683,7 +685,8 @@
       this.track.replaceChildren(...this.rows);
       if(this.pairMode){
         this.rows[0].className='fc-line fc-line-primary';
-        this.rows[1].className='fc-line fc-line-translation';
+        this.rows[1].className='fc-line fc-line-translation'+
+          (String(this.lines[nextIndex]?.translation||'').trim()?'':' fc-translation-placeholder');
         this.renderRow(2,nextIndex+1);
         this.renderRow(3,nextIndex+1,true);
       }else{
