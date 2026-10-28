@@ -36,7 +36,7 @@
   class LiveLyrics {
     constructor() {
       this.api = null; this.trackKey = ''; this.title = '';
-      this.lines = []; this.kind = ''; this.error = ''; this.busy = false;
+      this.lines = []; this.kind = ''; this.error = ''; this.busy = false; this.pureMusic=false;
       this.clock = Core.createClock(); this.listeners = [];
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
@@ -82,7 +82,7 @@
       this.trackKey = key; this.title = String(song?.songName ?? song?.name ?? '');
       this.artist = String(song?.authorName ?? song?.artistName ?? song?.artist ?? '');
       this.durationMs = Number(song?.duration ?? 0);
-      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = '';
+      this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
@@ -90,40 +90,33 @@
         const current = this.api?.getTimeline();
         if (Number.isFinite(current?.currentTime)) this.clock.anchor(current.currentTime, this.api.getPlaybackStatus() === 'Playing');
       } catch (_) { /* ignore */ }
-      if (!(id > 0) && (!this.title || !this.artist)) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||''; notify(); return; }
+      if (!this.title || !this.artist) {this.error='缺少可匹配的歌曲名或歌手';notify();return;}
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic); notify(); return; }
       this.busy = true; notify();
       const timer = setTimeout(() => ctrl.abort(), 12000);
       let result=null, lastError='';
       try {
-        // Preserve actual YRC word timing when available from Netease.
-        if (id > 0) {
-          try {
-            const base=(typeof window.APP_CONF?.domain === 'string' &&
-                /^https:\/\//.test(window.APP_CONF.domain))
-              ? window.APP_CONF.domain : 'https://music.163.com';
-            const url=base+'/api/song/lyric/v1?tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0&cp=false&id='+encodeURIComponent(id);
-            const response=await fetch(url,{signal:ctrl.signal});
-            if(!response.ok) throw Error('网易云 HTTP '+response.status);
-            const parsed=Core.parseNcmLyrics(await response.json());
-            if(parsed.lines.length) result={...parsed,provider:'网易云'};
-          } catch (e) {if(ctrl.signal.aborted) throw e;lastError=String(e.message||e);}
-        }
+        // No Netease lyric API: source lookup is independent of the player.
+        // This version uses LRCLIB's TBL-compatible source + verified timestamps.
         // LRCLIB has explicit CORS support and may supply word-timed Lyricsfile.
         // No invented word times: a strict song/artist/duration match is required.
-        if (!result && this.title && this.artist && !ctrl.signal.aborted) {
+        if (this.title && this.artist && !ctrl.signal.aborted) {
           const args=new URLSearchParams({track_name:this.title,artist_name:this.artist});
           if(this.durationMs > 1000) args.set('duration',String(Math.round(this.durationMs/1000)));
           const response=await fetch('https://lrclib.net/api/get?'+args,{
-            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.1 (https://github.com/YuuFong/FloatingCloud)'}});
+            signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
           if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
           const meta={title:this.title,artist:this.artist,durationMs:this.durationMs};
-          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),meta);
+          if(response.status===200) {
+            const record=await response.json();
+            if(record.instrumental) this.pureMusic=true;
+            result=Core.parseLrclibRecord(record,meta);
+          }
           else if(response.status===404) {
             const searchUrl='https://lrclib.net/api/search?'+new URLSearchParams({
               track_name:this.title,artist_name:this.artist});
             const searchResp=await fetch(searchUrl,{signal:ctrl.signal,headers:{
-              'Lrclib-Client':'FloatingCloud/0.4.2 (https://github.com/YuuFong/FloatingCloud)'}});
+              'Lrclib-Client':'FloatingCloud/0.4.3 (https://github.com/YuuFong/FloatingCloud)'}});
             if(searchResp.ok) {
               const candidates=await searchResp.json();
               if(Array.isArray(candidates)) {
@@ -138,10 +131,10 @@
         }
         if(this.trackKey!==key || ctrl.signal.aborted) return;
         if(result?.lines?.length) {
-          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;
+          this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
           this.cache.set(key,result);
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
-        } else this.error = lastError ? '未找到歌词（网易云：'+lastError+'）' : '未找到可信的同步歌词';
+        } else this.error = '未找到可信的同步歌词';
       } catch(e) {
         if(this.trackKey===key) this.error=ctrl.signal.aborted?'歌词请求超时或切歌取消':'歌词获取失败：'+String(e.message||e);
       } finally {
