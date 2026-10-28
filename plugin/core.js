@@ -55,7 +55,7 @@
       width: clamp(number(v.width, 740), 300, 1200),
       offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
-      showTranslation: false, // v0.4.1 always renders original + next line
+      showTranslation: Boolean(v.showTranslation), // original + translation when provided
       enableWordScan: Boolean(v.enableWordScan)
     };
   }
