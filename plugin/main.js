@@ -116,7 +116,7 @@
                 if(Array.isArray(response.lines) && response.lines.length) {
                   const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
                     .map(l=>({
-                      time:l.time,duration:Number(l.duration||0),text:l.text,
+                      time:l.time,duration:Number(l.duration||0),text:l.text,translation:String(l.translation||''),
                       words:Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
                         .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[],
                       kind:l.kind||'lrc'
@@ -564,7 +564,8 @@
     const configs = [
       ['enabled','启用预览','checkbox'], ['font','字体','select',Core.FONT_OPTIONS],
       ['fontWeight','字体粗细（参考 TaskbarLyrics）','select',Core.WEIGHT_OPTIONS],
-      ['fontSize','歌词字号（两行统一）','range',14,64,1],
+      ['fontSize','主行字号（副行小 2px）','range',14,64,1],
+      ['showTranslation','外文歌曲优先显示对应翻译（无翻译时保持双行）','checkbox'],
       ['color','文字颜色','color'],['nextColor','副行颜色','color'],['highlight','扫描高亮颜色','color'],
       ['strokeWidth','描边宽度','range',0,5,.2],['strokeColor','描边颜色','color'],
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
