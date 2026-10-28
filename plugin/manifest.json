@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "name": "FloatingCloud",
   "slug": "floatingcloud-lite",
-  "version": "0.4.0-alpha",
+  "version": "0.4.16-beta",
   "author": "FloatingCloud",
   "description": "实验性透明桌面歌词：WebView2 独立窗口、原生进度同步与逐词动画。不接管网易云原生桌面歌词。",
   "type": "extension",
