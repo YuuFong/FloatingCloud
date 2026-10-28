@@ -111,7 +111,7 @@ function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-spectrum-color',settings.color);applySpectrumGap();break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
@@ -160,6 +160,10 @@ function receive(message){
 }
 window.chrome?.webview?.addEventListener('message',ev=>receive(ev.data));
 view=new RollingView(stage);view.applySettings(settings);
+window.matchMedia?.('(prefers-color-scheme: light)')?.addEventListener?.('change',()=>{
+ view.applySettings(settings);
+ root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);
+});
 // Browser-only mock: deliberate and explicit. No fake playback in production WebView2.
 if(!window.chrome?.webview){
  lines=Core.parseNcmLyrics({yrc:{lyric:'[0,3000](0,800,0)窗外(800,700,0)的风(1500,1000,0)吹过\\n[3000,3000](0,900,0)平凡(900,900,0)时刻(1800,900,0)发光\\n[6000,3000](0,800,0)把日子(800,900,0)写成(1700,950,0)一首歌'}}).lines;
