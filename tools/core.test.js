@@ -176,3 +176,25 @@ test('spectrum spacing is persistent, numeric and clamped for 32-bar layout',()=
  assert.equal(C.normalizeSettings({spectrumGap:999}).spectrumGap,14);
  assert.equal(C.normalizeSettings({spectrumGap:'n/a'}).spectrumGap,3);
 });
+
+test('TaskbarLyrics foreground hierarchy uses a single base and consistent alpha',()=>{
+ const p=C.lyricPalette('light',false);
+ assert.equal(p.primary,'rgba(255,255,255,0.9)');
+ assert.equal(p.translation,'rgba(255,255,255,0.7)');
+ assert.equal(p.secondary,'rgba(255,255,255,0.6)');
+ assert.equal(C.lyricPalette('dark',false).translation,'rgba(17,24,39,0.7)');
+ assert.equal(C.lyricPalette('system',true).primary,'rgba(17,24,39,0.9)');
+ assert.equal(C.lyricPalette('system',false).primary,'rgba(255,255,255,0.9)');
+});
+test('legacy separate colors are ignored while foreground mode is kept',()=>{
+ const old=C.normalizeSettings({
+   color:'#123456',nextColor:'#abcdef',highlight:'#ff0000',strokeColor:'#00ff00'
+ });
+ assert.equal(old.foregroundMode,'system');
+ assert.ok(!Object.hasOwn(old,'color'));
+ assert.ok(!Object.hasOwn(old,'nextColor'));
+ assert.ok(!Object.hasOwn(old,'highlight'));
+ assert.ok(!Object.hasOwn(old,'strokeColor'));
+ assert.equal(C.normalizeSettings({foregroundMode:'dark'}).foregroundMode,'dark');
+ assert.equal(C.normalizeSettings({foregroundMode:'custom'}).foregroundMode,'system');
+});
