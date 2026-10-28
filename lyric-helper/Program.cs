@@ -151,6 +151,7 @@ static class Program
         if(mode=="local-first" || !online)
         {
             try {local=await LookupLocal(q,total.Token);}catch(OperationCanceledException){}
+            if(local is {pureMusic:true})return local;
             if(local is {lines.Length:>0})return local;
         }
         if(online)
@@ -160,11 +161,13 @@ static class Program
             using var onlineTimeout=CancellationTokenSource.CreateLinkedTokenSource(total.Token);
             onlineTimeout.CancelAfter(TimeSpan.FromSeconds(7));
             try {remote=await LookupOnline(q,onlineTimeout.Token);}catch(OperationCanceledException){}
+            if(remote is {pureMusic:true})return remote;
             if(remote is {lines.Length:>0})return remote;
         }
         if(local is null)
         {
             try {local=await LookupLocal(q,total.Token);}catch(OperationCanceledException){}
+            if(local is {pureMusic:true})return local;
             if(local is {lines.Length:>0})return local;
         }
         return local??remote??new Response(q.TrackKey,"","none",false,[],

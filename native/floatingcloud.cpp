@@ -362,7 +362,8 @@ void initWebView() {
                                     sendToWeb("timeline",latestFrame);
                                     sendToWeb("locked",locked?"true":"false");
                                     if (visible&&hwnd.load()) {
-                                        applyPlacement(hwnd.load());
+                                        // HWND already starts at saved coordinates. Never
+                                        // reapply an old position after WebView navigation.
                                         ShowWindow(hwnd.load(),SW_SHOWNOACTIVATE);
                                     }
                                     return S_OK;
@@ -475,10 +476,9 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         }
         case kVisible:
             visible=wp!=0;
-            if(visible&&webReady) {
-                applyPlacement(h);
-                ShowWindow(h,SW_SHOWNOACTIVATE);
-            }
+            // Visibility is NEVER a layout operation. A post-show position
+            // restore can race with a user drag or width adjustment.
+            if(visible&&webReady) ShowWindow(h,SW_SHOWNOACTIVATE);
             else ShowWindow(h,SW_HIDE);
             return 0;
         case kLock:setLock(wp!=0);return 0;
@@ -505,9 +505,12 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             const int requestedHeight=std::clamp(static_cast<int>(wp),110,400);
             if(height==requestedHeight)return 0;
             height=requestedHeight;
-            SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
-            if(hasPlacement) applyPlacement(h);
-            else keepWindowVisible(h);
+            // Preserve the actual on-screen origin even when font/line gap
+            // changes. Re-applying desiredPlacement here made the window
+            // jump to an old location every time layout height changed.
+            SetWindowPos(h,HWND_TOPMOST,0,0,width,height,
+                SWP_NOMOVE|SWP_NOACTIVATE);
+            keepWindowVisible(h); // rescue only if real lyric area went offscreen
             return 0;
         }
         case kSetPosition: {
@@ -707,6 +710,10 @@ static const char* spectrumEnabled(void** a) {
     fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
     return fc_spectrum::available()?"available":"starting-or-disabled";
 }
+static const char* spectrumStatus(void**) {
+    // Distinguish UI mode switching from WASAPI initialization failure.
+    return fc_spectrum::available()?"available":"not-ready";
+}
 static const char* lyricsLookup(void** a){
     if(!a || !a[0])return "error";
     fc_lyrics::request(static_cast<const char*>(a[0]));
@@ -750,6 +757,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.movedPosition",movedPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.spectrumEnabled",spectrumEnabled);
+    api->addNativeAPI(nullptr,0,"floatingcloud.spectrumStatus",spectrumStatus);
     api->addNativeAPI(stringArg,1,"floatingcloud.lyricsLookup",lyricsLookup);
     api->addNativeAPI(nullptr,0,"floatingcloud.lyricsPoll",lyricsPoll);
     api->addNativeAPI(nullptr,0,"floatingcloud.poll",poll);

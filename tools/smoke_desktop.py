@@ -7,6 +7,8 @@ assert 'id="drag"' not in html, 'old drag bar still present'
 assert 'id="play-pause"' in html and 'seekForward' in html
 assert 'id="music"' not in html, 'song information button should be removed'
 assert 'grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)' in html, 'play button must be centered'
+assert 'width:max-content;max-width:calc(100% - 24px)' in html, 'toolbar must stay compact and centered'
+assert '#toolbar .fc-tools-left,#toolbar .fc-tools-right{justify-content:space-between}' in html, 'toolbar outer ends should be symmetric'
 assert 'transform:translate(-50%,9px)' in html, 'toolbar must animate upward from below'
 assert 'applySpectrumGap' in html and 'spectrumGap' in html, 'live adjustable spectrum spacing is missing'
 assert 'id="resize-guide"' in html, 'width guide div missing'

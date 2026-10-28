@@ -162,3 +162,17 @@ test('native resize anchors the actual live window center and persists resized p
  assert.match(cpp,/publishPosition\(safe\.x,safe\.y\)/);
  assert.match(cpp,/width=std::clamp\(initialWidth\.load\(\),300,1200\)/);
 });
+
+test('slider numeric captions update on each input event after normalization',()=>{
+ const settings=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+ assert.match(settings,/input\.addEventListener\(type === 'range' \|\| type === 'color' \? 'input' : 'change',[\s\S]*?setSettings\(\{ \[key\]: val \}\);[\s\S]{0,300}?sync\(\);/);
+ assert.match(settings,/sub\.textContent = type === 'range' \? String\(v\) : ''/);
+});
+test('Win32 height / visibility updates no longer reset previously dragged position',()=>{
+ const cpp=fs.readFileSync(path.join(__dirname,'../native/floatingcloud.cpp'),'utf8');
+ const block=cpp.slice(cpp.indexOf('case kHeight:'),cpp.indexOf('case kSetPosition:'));
+ assert.ok(block.includes('SWP_NOMOVE'));
+ assert.ok(!block.includes('applyPlacement(h)'));
+ const show=cpp.slice(cpp.indexOf('case kVisible:'),cpp.indexOf('case kLock:'));
+ assert.ok(!show.includes('applyPlacement(h)'));
+});

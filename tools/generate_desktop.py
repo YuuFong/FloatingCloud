@@ -14,13 +14,19 @@ html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
 #root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
-#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:calc(100% - 24px);max-width:680px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:max-content;max-width:calc(100% - 24px);border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
 #root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
 #toolbar .fc-tools-left,#toolbar .fc-tools-right{display:flex;gap:4px;align-items:center;min-width:0}
-#toolbar .fc-tools-left{justify-content:flex-end}
-#toolbar .fc-tools-right{justify-content:flex-start}
+/* Compact intrinsic-width toolbar with two equal flex columns: the
+   outermost -0.5s and × edges are equidistant from the central play axis.
+   Do not stretch the toolbar to the full lyric window width. */
+#toolbar .fc-tools-left,#toolbar .fc-tools-right{justify-content:space-between}
+@media(max-width:450px){
+ #toolbar .fc-tools-left,#toolbar .fc-tools-right{gap:1px}
+ #toolbar button{font-size:11px;padding:4px 2px}
+}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
 #resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}

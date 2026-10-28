@@ -198,3 +198,23 @@ test('legacy separate colors are ignored while foreground mode is kept',()=>{
  assert.equal(C.normalizeSettings({foregroundMode:'dark'}).foregroundMode,'dark');
  assert.equal(C.normalizeSettings({foregroundMode:'custom'}).foregroundMode,'system');
 });
+
+test('instrumental placeholder lyrics trigger spectrum without false positive ordinary singing',()=>{
+ const silent=[{time:0,text:'纯音乐，请欣赏',kind:'lrc'}];
+ assert.equal(C.isInstrumentalPlaceholder(silent[0]),true);
+ assert.equal(C.isInstrumentalPlaceholder({text:'  纯音乐，请欣赏！  '}),true);
+ assert.equal(C.isInstrumentalPlaceholder({text:'Instrumental Version'}),true);
+ assert.equal(C.shouldDisplaySpectrum(silent,false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([],false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([],true,true,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'今天的纯音乐真好听'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'普通歌词'}],true,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([{text:'普通歌词'}],false,false,'force-spectrum'),true);
+ assert.equal(C.shouldDisplaySpectrum([],true,false,'lyrics-only'),false);
+});
+test('spectrum display mode is validated independently of spacing setting',()=>{
+ assert.equal(C.normalizeSettings({}).spectrumMode,'auto');
+ assert.equal(C.normalizeSettings({spectrumMode:'force-spectrum'}).spectrumMode,'force-spectrum');
+ assert.equal(C.normalizeSettings({spectrumMode:'lyrics-only'}).spectrumMode,'lyrics-only');
+ assert.equal(C.normalizeSettings({spectrumMode:'invalid'}).spectrumMode,'auto');
+});
