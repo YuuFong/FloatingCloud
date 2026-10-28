@@ -43,6 +43,7 @@ constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
 constexpr UINT kSetPosition = WM_APP + 109;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
+constexpr UINT_PTR kSpectrumUpdateTimer = 2403;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -56,7 +57,14 @@ bool locked = false; // accessed only from window thread
 bool lyricPointerDown=false, lyricDidDrag=false;
 bool settingsPopupOpen=false;
 bool controlsVisible=false;
+// Drag end is the only event allowed to update the saved position.
 std::atomic<bool> positionChanged{false};
+std::atomic<int> draggedX{0}, draggedY{0};
+// Staged synchronously from JS BEFORE the first native HWND is created.
+std::atomic<bool> initialPlacementValid{false};
+std::atomic<int> initialX{0}, initialY{0};
+bool hasPlacement=false; // accessed only from the UI thread
+POINT desiredPlacement{};
 HWND unlockButton=nullptr;
 ULONGLONG hoveredSince=0;
 POINT dragStartScreen{};
@@ -126,6 +134,12 @@ void keepWindowVisible(HWND h) {
     if(pt.x!=wr.left||pt.y!=wr.top)
         SetWindowPos(h,HWND_TOPMOST,pt.x,pt.y,0,0,SWP_NOSIZE|SWP_NOACTIVATE);
 }
+void applyPlacement(HWND h) {
+    if(!h || !hasPlacement)return;
+    const POINT safe=visiblePosition(desiredPlacement.x,desiredPlacement.y);
+    SetWindowPos(h,HWND_TOPMOST,safe.x,safe.y,0,0,
+        SWP_NOSIZE|SWP_NOACTIVATE);
+}
 void sizeController() {
     if (!controller || !hwnd.load()) return;
     RECT r{}; GetClientRect(hwnd.load(),&r);
@@ -146,23 +160,33 @@ void checkLockedHover() {
     POINT point{};
     RECT lyricArea{};
     if(!GetCursorPos(&point) || !GetWindowRect(main,&lyricArea))return;
-    // Whole overlay is an intentional unlock hotspot: the actual lyric lines
-    // move within it, so limiting hover to y >= 92 can miss visible text.
+    // Only the two actual lyric lines (below the 92px header) start
+    // the hover timer. The blank toolbar region must NOT trigger unlocking.
+    lyricArea.top=std::min(lyricArea.bottom,lyricArea.top+92);
+    lyricArea.bottom=std::max(lyricArea.top,lyricArea.bottom-8);
     RECT popupArea{};
     const bool popupVisible=unlockButton && IsWindowVisible(unlockButton);
     if(popupVisible) GetWindowRect(unlockButton,&popupArea);
-    const bool withinOverlay=PtInRect(&lyricArea,point);
+    const bool withinLyrics=PtInRect(&lyricArea,point);
     const bool withinPopup=popupVisible && PtInRect(&popupArea,point);
-    if(!withinOverlay && !withinPopup) {hideUnlockButton();return;}
+    // Once the icon has appeared, allow a narrow bridge from the lyric
+    // lines up to the icon. It never starts hovering in the blank header.
+    RECT bridge=popupArea;
+    if(popupVisible) {
+        bridge.left-=10;bridge.right+=10;
+        bridge.bottom=std::max(bridge.bottom,lyricArea.top+2);
+    }
+    const bool travellingToIcon=popupVisible && PtInRect(&bridge,point);
+    if(!withinLyrics && !withinPopup && !travellingToIcon) {hideUnlockButton();return;}
     if(popupVisible)return; // Never reset the timer while moving to the button.
     const ULONGLONG now=GetTickCount64();
     if(!hoveredSince){hoveredSince=now;return;}
     if(now-hoveredSince<800 || !unlockButton)return;
-    const int buttonWidth=110,buttonHeight=32;
+    const int buttonWidth=32,buttonHeight=32;
     const int x=lyricArea.left+(lyricArea.right-lyricArea.left-buttonWidth)/2;
     const int y=lyricArea.top+std::min(52,std::max(6,height-buttonHeight));
-    // This is an independent owned popup WITHOUT WS_EX_TRANSPARENT. The
-    // lyric surface remains click-through, but the unlock button is clickable.
+    // A fully transparent icon-only popup stays clickable. No rectangle
+    // or dark background appears behind the same ♙ symbol as the toolbar.
     SetWindowPos(unlockButton,HWND_TOPMOST,x,y,buttonWidth,buttonHeight,
         SWP_NOACTIVATE|SWP_SHOWWINDOW);
 }
@@ -208,14 +232,20 @@ LRESULT CALLBACK unlockProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             HDC dc=BeginPaint(h,&ps);
             RECT rect{};
             GetClientRect(h,&rect);
-            HBRUSH fill=CreateSolidBrush(RGB(30,39,56));
-            FillRect(dc,&rect,fill);
-            DeleteObject(fill);
+            // Color-keyed black-blue surface: only the white toolbar symbol
+            // remains visible, with a clickable transparent 32x32 hitbox.
+            HBRUSH clear=CreateSolidBrush(RGB(1,2,3));
+            FillRect(dc,&rect,clear);
+            DeleteObject(clear);
             SetBkMode(dc,TRANSPARENT);
             SetTextColor(dc,RGB(240,245,255));
-            auto old=SelectObject(dc,GetStockObject(DEFAULT_GUI_FONT));
-            DrawTextW(dc,L"解除锁定",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            HFONT font=CreateFontW(-23,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,
+                DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_DONTCARE,L"Segoe UI Symbol");
+            auto old=SelectObject(dc,font);
+            DrawTextW(dc,L"♙",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
             SelectObject(dc,old);
+            DeleteObject(font);
             EndPaint(h,&ps);
             return 0;
         }
@@ -307,7 +337,10 @@ void initWebView() {
                                     sendToWeb("lyrics",latestLyrics);
                                     sendToWeb("timeline",latestFrame);
                                     sendToWeb("locked",locked?"true":"false");
-                                    if (visible&&hwnd.load()) ShowWindow(hwnd.load(),SW_SHOWNOACTIVATE);
+                                    if (visible&&hwnd.load()) {
+                                        applyPlacement(hwnd.load());
+                                        ShowWindow(hwnd.load(),SW_SHOWNOACTIVATE);
+                                    }
                                     return S_OK;
                                 }).Get(),&token);
                             auto html=desktopHtml();
@@ -340,6 +373,13 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
     switch(msg) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
+            if(wp==kSpectrumUpdateTimer){
+                // TBL-like ~60 fps spectral updates, independent of JS's
+                // slower playback state/timeline polling.
+                if(visible && webReady && fc_spectrum::available())
+                    sendToWeb("spectrum",fc_spectrum::readJson());
+                return 0;
+            }
             break;
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
@@ -379,7 +419,18 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             if(lyricPointerDown) {
                 lyricPointerDown=false;
                 if(GetCapture()==h) ReleaseCapture();
-                if(lyricDidDrag) positionChanged.store(true);
+                if(lyricDidDrag) {
+                    // Capture exactly the final drag coordinates; reading
+                    // GetWindowRect later can return a resized/clamped rect.
+                    RECT finalRect{};
+                    if(GetWindowRect(h,&finalRect)) {
+                        draggedX.store(finalRect.left);
+                        draggedY.store(finalRect.top);
+                        desiredPlacement={finalRect.left,finalRect.top};
+                        hasPlacement=true;
+                        positionChanged.store(true);
+                    }
+                }
                 // Short click toggles toolbar; drag only moves the window.
                 if(!lyricDidDrag) sendToWeb("interaction", "{\"lyricClick\":true}");
                 return 0;
@@ -392,7 +443,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_SIZE:sizeController();return 0;
         case kFrame: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
-            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);if(fc_spectrum::available())sendToWeb("spectrum",fc_spectrum::readJson());}return 0;
+            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);}return 0;
         }
         case kLyrics: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
@@ -404,34 +455,40 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         }
         case kVisible:
             visible=wp!=0;
-            if(visible&&webReady) ShowWindow(h,SW_SHOWNOACTIVATE);
+            if(visible&&webReady) {
+                applyPlacement(h);
+                ShowWindow(h,SW_SHOWNOACTIVATE);
+            }
             else ShowWindow(h,SW_HIDE);
             return 0;
         case kLock:setLock(wp!=0);return 0;
         case kResize: {
             width=std::max(300,std::min(1200,static_cast<int>(wp)));
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
-            keepWindowVisible(h);
+            if(hasPlacement) applyPlacement(h);
+            else keepWindowVisible(h);
             return 0;
         }
         case kHeight: {
             height=std::max(110,std::min(400,static_cast<int>(wp)));
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
-            keepWindowVisible(h);
+            if(hasPlacement) applyPlacement(h);
+            else keepWindowVisible(h);
             return 0;
         }
         case kSetPosition: {
             const int x=static_cast<int>(static_cast<INT_PTR>(wp));
             const int y=static_cast<int>(lp);
-            const POINT safe=visiblePosition(x,y);
-            SetWindowPos(h,HWND_TOPMOST,safe.x,safe.y,0,0,
-                SWP_NOSIZE|SWP_NOACTIVATE);
+            hasPlacement=true;
+            desiredPlacement={x,y};
+            applyPlacement(h);
             return 0;
         }
         case kShutdown:case WM_CLOSE:
             closeWeb();DestroyWindow(h);return 0;
         case WM_DESTROY:
             KillTimer(h,kHoverCheckTimer);
+            KillTimer(h,kSpectrumUpdateTimer);
             if(unlockButton){DestroyWindow(unlockButton);unlockButton=nullptr;}
             hwnd.store(nullptr);PostQuitMessage(0);return 0;
     }
@@ -446,9 +503,18 @@ DWORD WINAPI windowThread(LPVOID) {
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     RegisterClassExW(&wc);
     int screenW=GetSystemMetrics(SM_CXSCREEN), screenH=GetSystemMetrics(SM_CYSCREEN);
+    // Construct the HWND at the *saved* coordinate before WebView2 exists.
+    // No visible window can ever appear briefly at a default position.
+    int initialLeft=(screenW-width)/2,initialTop=screenH*3/4;
+    if(initialPlacementValid.load()) {
+        desiredPlacement={initialX.load(),initialY.load()};
+        hasPlacement=true;
+        const POINT safe=visiblePosition(desiredPlacement.x,desiredPlacement.y);
+        initialLeft=safe.x;initialTop=safe.y;
+    }
     HWND h=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
         klass,L"FloatingCloud Desktop Lyrics",WS_POPUP,
-        (screenW-width)/2,screenH*3/4,width,height,nullptr,nullptr,module,nullptr);
+        initialLeft,initialTop,width,height,nullptr,nullptr,module,nullptr);
     if(!h){state.store(3);SetEvent(createdEvent);CoUninitialize();return 1;}
     hwnd.store(h);
     // The unlock control is a separately painted, click-capable popup.
@@ -460,10 +526,12 @@ DWORD WINAPI windowThread(LPVOID) {
     popup.lpszClassName=popupClass;
     popup.hCursor=LoadCursor(nullptr,IDC_HAND);
     RegisterClassExW(&popup);
-    unlockButton=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,
+    unlockButton=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE|WS_EX_LAYERED,
         popupClass,L"解除锁定",WS_POPUP,
-        0,0,110,32,h,nullptr,module,nullptr);
+        0,0,32,32,h,nullptr,module,nullptr);
+    if(unlockButton) SetLayeredWindowAttributes(unlockButton,RGB(1,2,3),0,LWA_COLORKEY);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
+    SetTimer(h,kSpectrumUpdateTimer,16,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
@@ -549,6 +617,19 @@ static const char* setHeight(void** a){
     return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
         static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+// Stage the persisted position before opening a HWND. The JS controller calls
+// this synchronously before floatingcloud.open; no PostMessage ordering race.
+static const char* setInitialPosition(void** a) {
+    if(!a || !a[0])return "error";
+    const char* raw=static_cast<const char*>(a[0]);
+    long long x=0,y=0;char trailing=0;
+    if(std::sscanf(raw,"%lld,%lld%c",&x,&y,&trailing)!=2 ||
+       x < -100000 || x > 100000 || y < -100000 || y > 100000)return "error";
+    fc::initialX.store(static_cast<int>(x));
+    fc::initialY.store(static_cast<int>(y));
+    fc::initialPlacementValid.store(true);
+    return "ok";
+}
 // Store only x,y in plugin configuration (never store screen-dependent HWND).
 static const char* setPosition(void** a) {
     HWND h=fc::hwnd.load();
@@ -570,7 +651,9 @@ static const char* getPosition(void**) {
 }
 static const char* movedPosition(void**) {
     if(!fc::positionChanged.exchange(false))return "";
-    return getPosition(nullptr);
+    static thread_local std::string value;
+    value=std::to_string(fc::draggedX.load())+","+std::to_string(fc::draggedY.load());
+    return value.c_str();
 }
 static const char* spectrumEnabled(void** a) {
     if(!a||!a[0])return "error";
@@ -614,6 +697,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
+    api->addNativeAPI(stringArg,1,"floatingcloud.setInitialPosition",setInitialPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.setPosition",setPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.movedPosition",movedPosition);

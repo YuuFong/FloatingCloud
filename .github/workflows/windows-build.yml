@@ -28,4 +28,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: FloatingCloud-plugin-win64
-          path: FloatingCloud-v0.4.8.plugin
+          path: FloatingCloud-v0.4.9.plugin

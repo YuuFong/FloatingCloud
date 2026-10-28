@@ -261,6 +261,12 @@
     }
     enable() {
       if (!this.probe()) {this.message='native.dll 未加载';return false;}
+      // The native HWND is born at the persisted drag position, never briefly
+      // shown at the default bottom-of-screen location.
+      const saved=plugin.getConfig('desktop-position-v1',null);
+      if(saved && Number.isInteger(saved.x) && Number.isInteger(saved.y) &&
+        Math.abs(saved.x)<=100000 && Math.abs(saved.y)<=100000)
+        this.call('setInitialPosition',[saved.x+','+saved.y]);
       if (this.call('open') !== 'started') {this.message='Native 窗口创建失败';return false;}
       this.enabled = true;
       this.applySettings(settings);
@@ -600,7 +606,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.8（窗口位置与悬停解锁修复版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.9（位置直存、TBL 频谱与工具栏优化）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);

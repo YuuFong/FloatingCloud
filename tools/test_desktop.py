@@ -10,12 +10,12 @@ async def run():
   page.on('pageerror', lambda ex:errors.append(str(ex)))
   await page.set_content(html.read_text(encoding='utf8'))
   await page.wait_for_timeout(900)
-  assert await page.locator('#toolbar button').count()==9
+  assert await page.locator('#toolbar button').count()==8
   assert await page.locator('.fc-text-highlight').count()>0, 'text mask missing'
   clip=await page.locator('.fc-text-box').first.evaluate('(el)=>el.style.getPropertyValue("--fc-progress")')
   print('word progress:',clip)
   await page.evaluate("document.querySelector('#root').classList.add('controls-open')")
-  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.8-desktop-preview.png',omit_background=True)
+  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.9-desktop-preview.png',omit_background=True)
   assert not errors, errors
   print('page errors:',errors)
   await browser.close()

@@ -65,6 +65,8 @@ function boot(options={}) {
 test('saved secondary-monitor coordinates are restored after size but before show',()=>{
  const h=boot({'desktop-position-v1':{x:-1250,y:340}});
  const ids=h.calls.map(c=>c.id);
+ assert.ok(ids.indexOf('floatingcloud.setInitialPosition')<ids.indexOf('floatingcloud.open'));
+ assert.equal(h.calls.find(c=>c.id==='floatingcloud.setInitialPosition').args[0],'-1250,340');
  assert.ok(ids.indexOf('floatingcloud.width')<ids.indexOf('floatingcloud.setPosition'));
  assert.ok(ids.indexOf('floatingcloud.height')<ids.indexOf('floatingcloud.setPosition'));
  assert.ok(ids.indexOf('floatingcloud.setPosition')<ids.indexOf('floatingcloud.show'));
@@ -114,4 +116,23 @@ test('drag completion just before shutdown is flushed once to config',()=>{
  assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,1);
  h.unload();
  assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,1);
+});
+
+test('dragged coordinate is staged BEFORE creating HWND on every restart',()=>{
+ const first=boot();
+ first.move(-700,206);
+ first.tick();
+ const expected=first.saved['desktop-position-v1'];
+ assert.equal(expected.x,-700);
+ assert.equal(expected.y,206);
+ for(let i=0;i<4;i++){
+   const restart=boot({'desktop-position-v1':expected});
+   const events=restart.calls.map(x=>x.id);
+   assert.ok(events.indexOf('floatingcloud.setInitialPosition')<events.indexOf('floatingcloud.open'));
+   assert.equal(restart.calls.find(x=>x.id==='floatingcloud.setInitialPosition').args[0],'-700,206');
+   assert.equal(restart.calls.find(x=>x.id==='floatingcloud.setPosition').args[0],'-700,206');
+   restart.repositionWithoutDrag(-700,206+27*(i+1));
+   restart.unload();
+   assert.equal(restart.saved['desktop-position-v1'].y,206);
+ }
 });

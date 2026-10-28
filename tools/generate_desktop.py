@@ -14,10 +14,13 @@ html='''<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
 #root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
-#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,-4px);display:flex;gap:4px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,-4px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:calc(100% - 24px);max-width:680px;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
 #root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
 #root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
 #root.settings-open #toolbar{visibility:hidden;pointer-events:none}
+#toolbar .fc-tools-left,#toolbar .fc-tools-right{display:flex;gap:4px;align-items:center;min-width:0}
+#toolbar .fc-tools-left{justify-content:flex-end}
+#toolbar .fc-tools-right{justify-content:flex-start}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
 #stage{width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
@@ -38,7 +41,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
  transition:background 280ms ease,opacity 260ms ease;opacity:.78}
 @media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
 </style></head><body>
-<div id="root"><div id="toolbar"><button id="music" title="显示/隐藏歌曲信息">♫</button><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
+<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
 <script>
 '''+core+'''
 </script><script>
@@ -48,7 +51,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 const Core = window.FloatingCloudCore;
 '''+renderer+'''
 let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
-let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,showingInfo=false,locked=false,pureMusic=false,searching=false,swapTimer=null;
+let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,locked=false,pureMusic=false,searching=false,swapTimer=null;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
@@ -76,12 +79,8 @@ document.getElementById('gear').addEventListener('click',ev=>{
  root.classList.toggle('settings-open',active);
  postAction(active?'settingsOpen':'settingsClosed');openControls();
 });
-document.getElementById('music').addEventListener('click',ev=>{
- ev.stopPropagation();showingInfo=!showingInfo;
- document.getElementById('state').style.opacity=showingInfo?'1':'0';openControls();
-});
 const spectrumEl=document.getElementById('spectrum');
-const spectrumBars=Array.from({length:21},(_,i)=>{
+const spectrumBars=Array.from({length:32},(_,i)=>{
  const bar=document.createElement('span');bar.dataset.index=String(i);spectrumEl.append(bar);return bar;
 });
 let spectrumTargets=spectrumBars.map(()=>0),spectrumVisuals=spectrumBars.map(()=>0),lastSpectrumTime=0;
@@ -90,10 +89,10 @@ function renderSpectrumFrame(now){
  lastSpectrumTime=now;
  spectrumBars.forEach((bar,i)=>{
    const target=pureMusic&&playStatus?(spectrumTargets[i]||0):0;
-   const old=spectrumVisuals[i],rate=target>old?.56:.24;
+   const old=spectrumVisuals[i],rate=target>old?.70:.35;
    const value=old+(target-old)*(1-Math.pow(1-rate,elapsed));
    spectrumVisuals[i]=value;
-   bar.style.height=Math.round(5+value*17)+'px';
+   bar.style.height=Math.round(6+value*26)+'px';
  });
  requestAnimationFrame(renderSpectrumFrame);
 }
