@@ -46,3 +46,23 @@ test('editing glow preserves the rendered lyric row and active roll state',()=>{
   assert.equal(view.generation,generation);
   assert.equal(stage.classList.contains('fc-chorus-glow'),false);
 });
+
+test('finishing a roll reuses the incoming row instead of rebuilding its glyphs',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){}}
+  }},el:()=>new FakeNode(),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const view=new context.RollingView(new FakeNode());
+  view.lines=Array.from({length:6},(_,i)=>({time:i*5000,duration:5000,text:'line '+i,words:[]}));
+  view.index=0;
+  view.applySettings(Core.normalizeSettings({}));
+  const incomingGlyph=view.rows[1].children[0];
+  const followingGlyph=view.rows[2].children[0];
+  view.promote(1,view.generation);
+  assert.equal(view.rows[0].children[0],incomingGlyph);
+  assert.equal(view.rows[1].children[0],followingGlyph);
+  assert.equal(view.rows[0].className,'fc-line fc-line-primary');
+});

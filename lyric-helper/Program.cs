@@ -125,11 +125,10 @@ static class Program
             TimeSpan.FromMilliseconds(Math.Max(0,q.DurationMs)),"External",null,[]);
         var plan=LyricSearchPlanner.CreatePlan(track);
         ILyricSource[] providers=[new QqMusicLyricSource(),new KugouLyricSource(),new LrcLibLyricSource()];
-        var parser=new LyricifyPayloadParser();
-        var decoder=new LyricifyPayloadDecoder();
-        foreach(var provider in providers)
+        async Task<Response?> TryProvider(ILyricSource provider)
         {
-            if(token.IsCancellationRequested)break;
+            var parser=new LyricifyPayloadParser();
+            var decoder=new LyricifyPayloadDecoder();
             try {
                 var candidates=(await provider.SearchAsync(plan,token))
                     .Where(c=>IsMatching(c,q))
@@ -163,8 +162,19 @@ static class Program
                     }catch(OperationCanceledException){throw;}
                     catch(Exception){ }
                 }
-            }catch(OperationCanceledException){break;}
+            }catch(OperationCanceledException){return null;}
             catch(Exception){ }
+            return null;
+        }
+        // Search all TBL sources together so a slow endpoint does not hold up
+        // a valid result from another source.
+        var pending=providers.Select(TryProvider).ToList();
+        while(pending.Count>0)
+        {
+            var completed=await Task.WhenAny(pending);
+            pending.Remove(completed);
+            var result=await completed;
+            if(result is {pureMusic:true} or {lines.Length:>0})return result;
         }
         return null;
     }
@@ -218,10 +228,10 @@ static class Program
                 new JsonSerializerOptions{PropertyNameCaseInsensitive=true});
             if(q is null)return 3;
             using var chorusTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            var chorusTask=LookupChorus(q,chorusTimeout.Token);
             var result=q.ChorusOnly
-                ? new Response(q.TrackKey,"","none",false,[],null,await chorusTask)
-                : (await Lookup(q)) with { chorus=await chorusTask };
+                ? new Response(q.TrackKey,"","none",false,[],null,
+                    await LookupChorus(q,chorusTimeout.Token))
+                : await Lookup(q);
             await File.WriteAllTextAsync(output,JsonSerializer.Serialize(result),new UTF8Encoding(false));
             return 0;
         }catch(Exception e) {

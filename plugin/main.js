@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.26-beta';
+  const VERSION = '0.4.27-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -162,7 +162,7 @@
               TrackKey:key,Title:this.title,Artist:this.artist,Album:'',DurationMs:this.durationMs,
               Mode:settings.lyricsMode,LocalFolders:localFolders,OfflineHint:offlineHint,
               NcmId:Number.isSafeInteger(id)&&id>0?id:0,
-              ChorusEnabled:settings.chorusGlowEnabled && settings.chorusGlowIntensity>0 && !this.trackInstrumental
+              ChorusEnabled:false
             };
             if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])==='started') {
               const limit=performance.now()+12500;
@@ -248,7 +248,9 @@
         if(this.generation===generation) {
           this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
           this.busy=false;notify();
-          if(this.chorusPending) {this.chorusPending=false;this.requestChorus();}
+          if(this.chorusPending || (settings.chorusGlowEnabled && this.lines.length)) {
+            this.chorusPending=false;this.requestChorus();
+          }
         }
       }
     }
@@ -653,22 +655,27 @@
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
-      // TBL's finalizeTransition: turn off *all* child transitions before
-      // resetting font scaling and moving the content origin. The previous
-      // implementation shifted live DOM rows, causing a white flash.
       this.track.classList.add('fc-no-anim');
       this.track.style.transition='none';
-      this.rows[0].style.opacity='.16';
-      this.rows[1].style.opacity='1';
-      void this.track.offsetHeight;
       this.index=nextIndex;
       this.track.style.transform='translate3d(0,0,0)';
-      this.draw();
-      this.rows[0].classList.remove('fc-leaving','fc-promoting','fc-incoming');
-      this.rows[1].classList.remove('fc-leaving','fc-promoting','fc-incoming');
-      this.rows[2].classList.remove('fc-leaving','fc-promoting','fc-incoming');
-      this.rows[3].classList.remove('fc-leaving','fc-promoting','fc-incoming','fc-pair-leaving');
-      this.rows.forEach(r=>{r.style.opacity='';r.style.transform='';});
+      // Reuse the glyphs already visible during the roll. Rebuilding every
+      // row here forced two layouts and briefly paused the incoming line.
+      const step=this.pairMode?2:1;
+      this.rows=[...this.rows.slice(step),...this.rows.slice(0,step)];
+      this.scanRows=[...this.scanRows.slice(step),...this.scanRows.slice(0,step)];
+      this.track.replaceChildren(...this.rows);
+      if(this.pairMode){
+        this.rows[0].className='fc-line fc-line-primary';
+        this.rows[1].className='fc-line fc-line-translation';
+        this.renderRow(2,nextIndex+1);
+        this.renderRow(3,nextIndex+1,true);
+      }else{
+        this.rows[0].className='fc-line fc-line-primary';
+        this.rows[1].className='fc-line fc-line-secondary';
+        this.rows[2].className='fc-line fc-line-secondary';
+        this.renderRow(3,nextIndex+3);
+      }
       this.renderScan(Core.lineProgress(this.lines,nextIndex,this.lastPosition),
         this.lastPosition,this.scanRows[0]);
       void this.track.offsetHeight;
