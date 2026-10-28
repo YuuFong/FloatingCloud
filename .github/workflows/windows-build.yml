@@ -21,7 +21,7 @@ jobs:
           node --check plugin/core.js
           node --check plugin/main.js
           node --check plugin/ncm-path.js
-          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js
+          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js tools/ncm-directory-integration.test.js
       - name: Build and package x64 plugin
         shell: pwsh
         run: .\tools\build-windows.ps1
