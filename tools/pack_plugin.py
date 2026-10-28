@@ -6,6 +6,7 @@ manifest=json.loads((plugin/'manifest.json').read_text(encoding='utf8'))
 if not (plugin/'native.dll').exists():
     raise SystemExit('Missing native.dll; build native host before producing installable .plugin. No JS-only stub will be shipped as a desktop host.')
 assert manifest['native_plugin']=='native.dll'
+assert (plugin/'FloatingCloudLyrics.exe').is_file(), 'Missing self-contained TBL lyric provider executable'
 assert (plugin/'desktop.html').is_file()
 name=root/'FloatingCloud-v0.4.3.plugin'
 with zipfile.ZipFile(name,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
