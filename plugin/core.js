@@ -26,8 +26,7 @@
     enabled: true,
     font: 'Microsoft YaHei, sans-serif',
     fontWeight: 600, fontSize: 30,
-    color: '#d4d9e5', nextColor: '#a8b2c8',
-    highlight: '#ffffff', strokeWidth: 1.4, strokeColor: '#222936',
+    foregroundMode: 'system', strokeWidth: 1.4,
     shadow: 3, lineGap: 12, align: 'center', width: 740,
     spectrumGap: 3,
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
@@ -37,7 +36,20 @@
   });
   const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
   const number = (v, def) => (v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : def;
-  const color = (x, fallback) => /^#[0-9a-f]{6}$/i.test(String(x)) ? String(x) : fallback;
+  // TaskbarLyrics v1.7.4 ForegroundColorPolicy: one foreground base,
+  // primary 90%, translation 70%, secondary 60% alpha.
+  function lyricPalette(mode, systemUsesLightTheme = false) {
+    const darkText = mode === 'dark' || (mode === 'system' && systemUsesLightTheme);
+    const rgb = darkText ? '17,24,39' : '255,255,255';
+    return {
+      primary: `rgba(${rgb},0.9)`,
+      translation: `rgba(${rgb},0.7)`,
+      secondary: `rgba(${rgb},0.6)`,
+      scan: `rgba(${rgb},1)`,
+      stroke: darkText ? '#f8fafc' : '#222936',
+      spectrum: darkText ? '#111827' : '#ffffff'
+    };
+  }
   function normalizeSettings(input) {
     const v = Object.assign({}, DEFAULTS, input && typeof input === 'object' ? input : {});
     const validFonts = FONT_OPTIONS.map(f => f.value);
@@ -47,11 +59,9 @@
     return {
       enabled: Boolean(v.enabled), font, fontWeight,
       fontSize: clamp(number(v.fontSize, 30), 14, 64),
-      color: color(v.color, DEFAULTS.color),
-      nextColor: color(v.nextColor, DEFAULTS.nextColor),
-      highlight: color(v.highlight, DEFAULTS.highlight),
+      foregroundMode: ['system','light','dark'].includes(v.foregroundMode)
+        ? v.foregroundMode : 'system',
       strokeWidth: clamp(number(v.strokeWidth, 1.4), 0, 5),
-      strokeColor: color(v.strokeColor, DEFAULTS.strokeColor),
       shadow: clamp(number(v.shadow, 3), 0, 16),
       lineGap: clamp(number(v.lineGap, 12), 0, 40),
       spectrumGap: clamp(number(v.spectrumGap, 3), 0, 14),
