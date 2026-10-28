@@ -50,9 +50,9 @@ test('displayed and packaged versions match manifest', () => {
   // The CI upload path must be version-agnostic; the packaging script reads manifest.version.
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-build.yml'), 'utf8');
   const packager = fs.readFileSync(path.join(root, 'tools/pack_plugin.py'), 'utf8');
-  assert.match(workflow, /path: FloatingCloud-v\\*\\.plugin/);
-  assert.match(workflow, /tools\\/validate-plugin-package\\.py/);
-  assert.match(packager, /manifest\\['version'\\]/);
+  assert.ok(workflow.includes('path: FloatingCloud-v*.plugin'));
+  assert.ok(workflow.includes('tools/validate-plugin-package.py'));
+  assert.ok(packager.includes("manifest['version']"));
 });
 
 test('quick settings refresh action reaches the current lyric lookup', () => {
