@@ -79,6 +79,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     spectrumMode: 'auto',
     offsetMs: 0, animationSpeed: 1, showTranslation: false,
     enableWordScan: true,
+    chorusGlowEnabled: false, chorusGlowIntensity: 30, chorusGlowStyle: 'soft',
     lyricsMode: 'online-first',
     localLyricsFolders: ''
   });
@@ -126,6 +127,10 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
       showTranslation: Boolean(v.showTranslation), // original + translation when provided
       enableWordScan: Boolean(v.enableWordScan),
+      chorusGlowEnabled: Boolean(v.chorusGlowEnabled),
+      chorusGlowIntensity: clamp(number(v.chorusGlowIntensity, 30), 0, 100),
+      chorusGlowStyle: ['soft','standard','bright'].includes(v.chorusGlowStyle)
+        ? v.chorusGlowStyle : 'soft',
       lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
         ? v.lyricsMode : 'online-first',
       // Paths are saved only in BetterNCM settings and sent to the local .NET helper.
@@ -368,6 +373,20 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     const total = words.reduce((sum, w) => sum + weight(w), 0);
     return clamp(words.reduce((sum, w) => sum + weight(w) * wordProgress(w, timeMs), 0) / Math.max(total, 1), 0, 1);
   }
+  function normalizeChorusIntervals(input, durationMs) {
+    if (!Array.isArray(input) || !Number.isFinite(durationMs) || durationMs <= 0) return [];
+    return input.slice(0, 12).filter(segment => {
+      const start = Number(segment?.startMs), end = Number(segment?.endMs);
+      return Number.isFinite(start) && Number.isFinite(end) && start >= 0 &&
+        end > start && end - start >= 1000 && end - start <= 120000 &&
+        end <= durationMs + 1000;
+    }).map(segment => ({startMs:Number(segment.startMs), endMs:Number(segment.endMs)}))
+      .sort((a,b) => a.startMs - b.startMs);
+  }
+  function isChorusActive(intervals, positionMs) {
+    return Number.isFinite(positionMs) && Array.isArray(intervals) &&
+      intervals.some(segment => positionMs >= segment.startMs && positionMs < segment.endMs);
+  }
   function createClock(now = () => performance.now()) {
     let basePosition = 0, baseStamp = now(), playing = false;
     return {
@@ -389,7 +408,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
     attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
-    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
+    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, normalizeChorusIntervals, isChorusActive, createClock };
 });
 
 </script><script>
@@ -938,7 +957,8 @@ const Core = window.FloatingCloudCore;
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap;text-shadow:0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 260ms ease}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
   .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
   /* Playback-safe renderer: no per-frame mask-image or mask gradients.
      The clipped scan layer is fully opaque and noticeably brighter than the
@@ -982,6 +1002,7 @@ const Core = window.FloatingCloudCore;
       this.timer = null; this.generation = 0; this.lastPosition = 0;
       this.presentation = new window.taskbarLyricsPresentation.PresentationCoordinator();
       this.renderTrackId = 0;
+      this.glowActive = false;
     }
     applySettings(s) {
       this.settings = s;
@@ -1000,6 +1021,14 @@ const Core = window.FloatingCloudCore;
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
+      const radius={soft:7,standard:12,bright:18}[s.chorusGlowStyle]||7;
+      const alpha=Math.min(.85,s.chorusGlowIntensity/100*.75*
+        ({soft:.8,standard:1,bright:1.2}[s.chorusGlowStyle]||.8));
+      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-blur',radius+'px');
+      v.setProperty('--fc-glow-wide',radius*2+'px');
+      v.setProperty('--fc-glow-alpha',String(alpha));
+      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
       // TBL's calibrated text-shadow keeps transparency consistent across
       // untranslated, translated and unplayed segments. Legacy stroke/shadow
       // settings remain in config for backward compatibility, not applied in
@@ -1010,6 +1039,8 @@ const Core = window.FloatingCloudCore;
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
+      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
+        this.setGlow(false);
       this.cancelTransition();
       if (this.index !== null) {
         this.draw();
@@ -1018,6 +1049,7 @@ const Core = window.FloatingCloudCore;
     }
     setLines(lines) {
       if (this.lines === lines) return;
+      this.setGlow(false);
       this.lines = Array.isArray(lines) ? lines : [];
       ++this.renderTrackId;
       this.cancelTransition(); this.index = null;
@@ -1069,6 +1101,11 @@ const Core = window.FloatingCloudCore;
       scan.node.style.setProperty('--fc-progress',
         (Math.max(0,Math.min(1,value))*100).toFixed(3) + '%');
     }
+    setGlow(active) {
+      if(this.glowActive===active)return;
+      this.glowActive=active;
+      this.stage.classList.toggle('fc-chorus-glow',active);
+    }
     promote(nextIndex, ticket) {
       if (ticket !== this.generation) return;
       clearTimeout(this.timer); this.timer = null;
@@ -1111,7 +1148,9 @@ const Core = window.FloatingCloudCore;
         isPlaying:true
       };
     }
-    update(index, progress, timeMs) {
+    update(index, progress, timeMs, chorusActive=false) {
+      this.setGlow(Boolean(chorusActive && this.settings?.enabled && this.settings?.chorusGlowEnabled &&
+        this.settings?.enableWordScan && this.settings?.chorusGlowIntensity>0));
       if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
       this.stage.style.opacity='1'; this.lastPosition=timeMs;
       if (index<0) {index=0;progress=0;}
@@ -1180,7 +1219,7 @@ const Core = window.FloatingCloudCore;
   }
 
 
-let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
+let settings=Core.normalizeSettings({}),lines=[],chorusIntervals=[],lastTrackKey='',clock=Core.createClock();
 let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,locked=false,pureMusic=false,searching=false,swapTimer=null;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
@@ -1272,6 +1311,7 @@ function receive(message){
       const wasSearching=searching;
       lastTrackKey=String(p.trackKey||'');
       searching=Boolean(p.searching);
+      chorusIntervals=Core.normalizeChorusIntervals(p.chorus,Number(p.durationMs)||0);
       lines=searching
         ? [
             {time:0,duration:3600000,text:[p.title,p.artist].filter(Boolean).join(' — ')||'正在识别歌曲',words:[]},
@@ -1326,7 +1366,9 @@ if(!window.chrome?.webview){
 }
 function raf(){
  const pos=searching?0:clock.position(),index=searching?0:Core.resolveIndex(lines,pos),progress=searching?0:Core.lyricProgress(lines,index,pos);
- view.update(index,progress,pos);
+ const chorusActive=playStatus&&!searching&&!pureMusic&&
+   Core.isChorusActive(chorusIntervals,pos-settings.offsetMs);
+ view.update(index,progress,pos,chorusActive);
  requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);

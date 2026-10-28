@@ -44,13 +44,14 @@
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch (e) { console.warn('[FloatingCloud] view update', e); } });
   const setSettings = (patch) => {
     const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders,
-      previousGlow=settings.chorusGlowEnabled;
+      previousGlow=Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0);
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
     try { desktop?.applySettings(settings); } catch (e) { console.warn(e); }
-    if(previousGlow!==settings.chorusGlowEnabled || previousMode!==settings.lyricsMode ||
+    if(previousGlow!==Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0) ||
+       previousMode!==settings.lyricsMode ||
        previousFolders!==settings.localLyricsFolders) live?.refresh();
   };
 
@@ -632,7 +633,7 @@
       };
     }
     update(index, progress, timeMs, chorusActive=false) {
-      this.setGlow(Boolean(chorusActive && this.settings?.chorusGlowEnabled &&
+      this.setGlow(Boolean(chorusActive && this.settings?.enabled && this.settings?.chorusGlowEnabled &&
         this.settings?.enableWordScan && this.settings?.chorusGlowIntensity>0));
       if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
       this.stage.style.opacity='1'; this.lastPosition=timeMs;
