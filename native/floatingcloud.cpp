@@ -530,7 +530,7 @@ DWORD WINAPI windowThread(LPVOID) {
         0,0,32,32,h,nullptr,module,nullptr);
     if(unlockButton) SetLayeredWindowAttributes(unlockButton,RGB(1,2,3),0,LWA_COLORKEY);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
-    SetTimer(h,kSpectrumUpdateTimer,33,nullptr);
+    SetTimer(h,kSpectrumUpdateTimer,16,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
