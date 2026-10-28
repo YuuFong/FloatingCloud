@@ -375,18 +375,35 @@
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
   .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
-  /* Follow TBL v1.7.4: primary .90 × .98, translation .70 × 1,
-     next .60 × .72. An opaque outline would defeat alpha hierarchy. */
+  /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
+     row, never an opaque drop-shadow/outline that changes apparent opacity. */
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
+  /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
+     60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
-  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale));-webkit-text-stroke:0 transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.36))}
+  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
   .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
-  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale));-webkit-text-stroke:0 transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.36))}
+  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
   .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
+     The 90%-alpha played segment is a separate clipped/masked layer.
+     Without scanning enabled, retain the normal 90%-alpha primary color. */
+  .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next);clip-path:inset(0 0 0 var(--fc-progress,0%))}
+  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
+  @supports ((mask-image:linear-gradient(to right,#000,transparent)) or (-webkit-mask-image:linear-gradient(to right,#000,transparent))){
+    .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{clip-path:none}
+    .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-highlight{
+      clip-path:none;color:var(--fc-highlight);
+      --fc-scan-feather:min(0.12em,var(--fc-progress,0%),calc(100% - var(--fc-progress,0%)));
+      -webkit-mask-image:linear-gradient(to right,#000 0,#000 calc(var(--fc-progress,0%) - var(--fc-scan-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-scan-feather)),transparent 100%);
+      mask-image:linear-gradient(to right,#000 0,#000 calc(var(--fc-progress,0%) - var(--fc-scan-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-scan-feather)),transparent 100%);
+      -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat
+    }
+  }
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
@@ -443,14 +460,16 @@
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
-      v.setProperty('--fc-stroke', s.strokeWidth + 'px');
-      v.setProperty('--fc-stroke-color', palette.stroke);
-      v.setProperty('--fc-shadow', s.shadow + 'px');
+      // TBL's calibrated text-shadow keeps transparency consistent across
+      // untranslated, translated and unplayed segments. Legacy stroke/shadow
+      // settings remain in config for backward compatibility, not applied in
+      // the faithful TBL color mode.
       v.setProperty('--fc-align', s.align);
       v.fontFamily = s.font;
       v.height = (this.pitch * 2) + 'px'; // exact viewport: row 3 is fully clipped
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
+      this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
       this.cancelTransition();
       if (this.index !== null) {
         this.draw();
@@ -623,7 +642,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.13 Beta（纯音乐自动频谱与 TBL 配色）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.14 Beta（TBL 原版色阶与频谱柱宽）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -681,9 +700,9 @@
         {value:'light',label:'浅色歌词'},
         {value:'dark',label:'深色歌词'}
       ]],
-      ['strokeWidth','描边宽度','range',0,5,.2],
-      ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
+      ['lineGap','行间距','range',0,40,1],
       ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
+      ['spectrumBarWidth','纯音乐频谱单柱宽度（px）','range',1,12,1],
       ['spectrumMode','频谱显示策略','select',[
         {value:'auto',label:'自动识别（默认）'},
         {value:'force-spectrum',label:'强制显示频谱（歌词误识别时）'},
