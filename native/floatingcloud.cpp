@@ -111,10 +111,12 @@ POINT visiblePosition(int x, int y) {
     MONITORINFO mi{sizeof(mi)};
     if(monitor && GetMonitorInfoW(monitor,&mi)) {
         const RECT& area=mi.rcWork;
-        const int rightmost=std::max(area.left,area.right-width);
-        const int bottommost=std::max(area.top,area.bottom-height);
-        x=std::clamp(x,area.left,rightmost);
-        y=std::clamp(y,area.top,bottommost);
+        const int left=static_cast<int>(area.left);
+        const int top=static_cast<int>(area.top);
+        const int rightmost=std::max(left,static_cast<int>(area.right)-width);
+        const int bottommost=std::max(top,static_cast<int>(area.bottom)-height);
+        x=std::clamp(x,left,rightmost);
+        y=std::clamp(y,top,bottommost);
     }
     return POINT{x,y};
 }
