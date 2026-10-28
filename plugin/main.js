@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.36-beta';
+  const VERSION = '0.4.37-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -478,12 +478,12 @@
   /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
      60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
-  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-translation{font-size:calc(var(--fc-font-size) - 5px);color:var(--fc-translation);opacity:1;transform:none}
   .fc-line-translation.fc-translation-placeholder{opacity:.55}
   .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
   .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
-  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
-  .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-secondary{font-size:calc(var(--fc-font-size) - 5px);color:var(--fc-next);opacity:.72;transform:none}
+  .fc-line-secondary.fc-promoting{font-size:var(--fc-font-size);color:var(--fc-color);opacity:.98;transform:scale(1)}
   .fc-line-secondary.fc-incoming{opacity:0}
   /* Keep the glow's blur inside the clipping box. Negative margins preserve
      the glyph position; the stage still clips the offscreen rolling rows. */
@@ -623,12 +623,13 @@
       this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
       this.stage.classList.remove('fc-rolling');
-      this.rows.forEach(r=>r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving'));
+      this.rows.forEach(r=>{r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving');r.style.fontSize='';r.style.transform='';});
     }
     renderRow(rowIndex, lineIndex, translation=false) {
       const r=this.rows[rowIndex],line=this.lines[lineIndex];
       const primary=rowIndex===0 || (this.pairMode && rowIndex===2);
       const missingTranslation=translation&&!String(line?.translation||'').trim();
+      r.style.fontSize='';r.style.transform='';
       r.className='fc-line '+(translation?'fc-line-translation'+(missingTranslation?' fc-translation-placeholder':''):
         primary?'fc-line-primary':'fc-line-secondary');
       r.replaceChildren();
@@ -691,6 +692,7 @@
         this.renderRow(3,nextIndex+1,true);
       }else{
         this.rows[0].className='fc-line fc-line-primary';
+        this.rows[0].style.fontSize='';this.rows[0].style.transform='';
         this.rows[1].className='fc-line fc-line-secondary';
         this.rows[2].className='fc-line fc-line-secondary';
         this.renderRow(3,nextIndex+3);
@@ -758,7 +760,12 @@
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
           if(this.pairMode)this.rows[1].classList.add('fc-pair-leaving');
-          else this.rows[1].classList.add('fc-promoting');
+          else {
+            // TBL measures the next row at its smaller real font size, then
+            // switches to primary metrics before animating only the scale.
+            this.rows[1].style.fontSize='var(--fc-font-size)';
+            this.rows[1].style.transform='scale(var(--fc-secondary-scale))';
+          }
           // Incoming second line is visible through the moving viewport,
           // exactly as in TBL; hiding it and revealing it only at the end
           // caused the next-line flash.
@@ -772,8 +779,10 @@
           });
           ctx.scheduleFallback(finish,duration+90);
           ctx.requestFrame(()=>{
-            if(ctx.isCurrent() && ticket===this.generation)
+            if(ctx.isCurrent() && ticket===this.generation){
+              if(!this.pairMode){this.rows[1].classList.add('fc-promoting');this.rows[1].style.transform='';}
               this.track.style.transform='translate3d(0,-'+(this.pairMode?this.pitch*2:this.pitch)+'px,0)';
+            }
           });
         },
         complete:()=>{
