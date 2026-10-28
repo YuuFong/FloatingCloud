@@ -1,0 +1,48 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const Core=require('../plugin/core.js');
+
+class FakeNode {
+  constructor() {
+    this.children=[];this.style={setProperty(name,value){this[name]=value;}};
+    const classes=new Set();
+    this.classList={add:name=>classes.add(name),remove:(...names)=>names.forEach(name=>classes.delete(name)),
+      toggle:(name,on)=>on?classes.add(name):classes.delete(name),contains:name=>classes.has(name)};
+    this.offsetHeight=1;
+  }
+  append(...children){this.children.push(...children);}
+  replaceChildren(...children){this.children=children;}
+}
+
+test('editing glow preserves the rendered lyric row and active roll state',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  assert.ok(start>0&&end>start);
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{cancelTransition(){}}
+  }},el:()=>new FakeNode(),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const stage=new FakeNode(),view=new context.RollingView(stage);
+  view.lines=[{time:0,duration:5000,text:'current',words:[]},
+    {time:5000,duration:5000,text:'next',words:[]}];
+  view.index=0;
+  const initial=Core.normalizeSettings({chorusGlowEnabled:true,chorusGlowIntensity:30});
+  view.applySettings(initial);
+  const glyph=view.rows[0].children[0];
+  const generation=view.generation;
+  view.track.style.transform='translate3d(0,-20px,0)';
+  view.setGlow(true);
+  view.applySettings(Core.normalizeSettings({...initial,chorusGlowIntensity:80,chorusGlowStyle:'bright'}));
+  assert.equal(view.rows[0].children[0],glyph);
+  assert.equal(view.generation,generation);
+  assert.equal(view.track.style.transform,'translate3d(0,-20px,0)');
+  assert.equal(stage.classList.contains('fc-chorus-glow'),true);
+  view.applySettings(Core.normalizeSettings({...initial,chorusGlowEnabled:false}));
+  assert.equal(view.rows[0].children[0],glyph);
+  assert.equal(view.generation,generation);
+  assert.equal(stage.classList.contains('fc-chorus-glow'),false);
+});

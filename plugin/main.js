@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.25-beta';
+  const VERSION = '0.4.26-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -43,16 +43,20 @@
   const subscribers = new Set();
   const notify = () => subscribers.forEach(fn => { try { fn(); } catch (e) { console.warn('[FloatingCloud] view update', e); } });
   const setSettings = (patch) => {
+    const glowOnly=Object.keys(patch).length>0 && Object.keys(patch).every(key=>
+      ['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'].includes(key));
     const previousMode=settings.lyricsMode, previousFolders=settings.localLyricsFolders,
       previousGlow=Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0);
     settings = Core.normalizeSettings({ ...settings, ...patch });
     plugin.setConfig(KEY, settings);
     notify();
     // A future native window host may subscribe to these settings explicitly.
-    try { desktop?.applySettings(settings); } catch (e) { console.warn(e); }
-    if(previousGlow!==Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0) ||
-       previousMode!==settings.lyricsMode ||
+    try { desktop?.applySettings(settings,glowOnly); } catch (e) { console.warn(e); }
+    if(previousMode!==settings.lyricsMode ||
        previousFolders!==settings.localLyricsFolders) live?.refresh();
+    else if(previousGlow!==Boolean(settings.chorusGlowEnabled && settings.chorusGlowIntensity>0) &&
+            settings.chorusGlowEnabled && settings.chorusGlowIntensity>0)
+      live?.requestChorus();
   };
 
   class LiveLyrics {
@@ -64,6 +68,7 @@
       this.cancel = null; this.retry = null; this.attempts = 0;
       this.cache = new Map();
       this.chorusIntervals = [];
+      this.chorusLoaded=false;this.chorusPending=false;this.chorusBusy=false;
       this.generation = 0; this.pendingSong = null; this.songTask = null;
     }
     init() {
@@ -122,6 +127,7 @@
       this.instrumentalHint=this.trackInstrumental?'网易云歌曲纯音乐标记':'';
       this.lines = []; this.kind = ''; this.provider=''; this.busy = false; this.error = ''; this.pureMusic=false;
       this.chorusIntervals=[];
+      this.chorusLoaded=false;this.chorusPending=false;
       this.cancel?.abort();
       const ctrl = new AbortController(); this.cancel = ctrl;
       this.clock.reset();
@@ -135,7 +141,7 @@
       }} catch (_) { /* ignore */ }
       if (!diag.lyricRequests) { notify(); return; }
       if (!this.title) {this.error='缺少歌曲名称，无法匹配本地或在线歌词';notify();return;}
-      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic);this.chorusIntervals=saved.chorusIntervals||[]; notify(); return; }
+      if (this.cache.has(key)) { const saved = this.cache.get(key); this.lines = saved.lines; this.kind = saved.kind;this.provider=saved.provider||'';this.pureMusic=Boolean(saved.pureMusic);this.chorusIntervals=saved.chorusIntervals||[];this.chorusLoaded=Boolean(saved.chorusLoaded);notify();if(settings.chorusGlowEnabled&&!this.chorusLoaded)this.requestChorus();return; }
       this.busy = true; notify();
       const timer = setTimeout(() => ctrl.abort(), 15500);
       let result=null, lastError='', autoOffline=false, helperResponded=false, chorusIntervals=[];
@@ -170,6 +176,11 @@
                 if(response.trackKey!==key)continue;
                 helperResponded=true;
                 chorusIntervals=Core.normalizeChorusIntervals(response.chorus,this.durationMs);
+                this.chorusLoaded=Boolean(request.ChorusEnabled);
+                if(!response.pureMusic && chorusIntervals.length) {
+                  this.chorusIntervals=chorusIntervals;
+                  notify(); // publish timed glow before any LRCLIB fallback finishes
+                }
                 if(response.error==='offline-no-local-lyrics')autoOffline=true;
                 if(response.pureMusic) {this.pureMusic=true;break;}
                 if(Array.isArray(response.lines) && response.lines.length) {
@@ -227,7 +238,7 @@
         this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
         if(result?.lines?.length) {
           this.lines=result.lines;this.kind=result.kind;this.provider=result.provider;this.pureMusic=false;
-          this.cache.set(key,{...result,chorusIntervals:this.chorusIntervals});
+          this.cache.set(key,{...result,chorusIntervals:this.chorusIntervals,chorusLoaded:this.chorusLoaded});
           if(this.cache.size>30) this.cache.delete(this.cache.keys().next().value);
         } else if(!this.pureMusic) this.error = '未找到可信的同步歌词';
       } catch(e) {
@@ -237,8 +248,44 @@
         if(this.generation===generation) {
           this.chorusIntervals=this.pureMusic?[]:chorusIntervals;
           this.busy=false;notify();
+          if(this.chorusPending) {this.chorusPending=false;this.requestChorus();}
         }
       }
+    }
+    async requestChorus() {
+      if(!settings.chorusGlowEnabled || settings.chorusGlowIntensity<=0 ||
+         settings.lyricsMode==='local-only' || this.trackInstrumental || this.pureMusic ||
+         this.chorusLoaded || !this.trackKey.startsWith('ncm:') ||
+         !(this.durationMs>0) || !diag.nativeLyrics)return;
+      if(this.busy || this.chorusBusy){this.chorusPending=true;return;}
+      const nativeApi=window.betterncm_native?.native_plugin;
+      if(typeof nativeApi?.call!=='function')return;
+      const key=this.trackKey,generation=this.generation;
+      const id=Number(key.split(':')[1]);
+      if(!Number.isSafeInteger(id)||id<=0)return;
+      this.chorusBusy=true;
+      try {
+        const request={TrackKey:key,Title:this.title,Artist:this.artist,Album:'',
+          DurationMs:this.durationMs,Mode:settings.lyricsMode,LocalFolders:[],
+          OfflineHint:typeof navigator!=='undefined'&&navigator.onLine===false,
+          NcmId:id,ChorusEnabled:true,ChorusOnly:true};
+        if(nativeApi.call('floatingcloud.lyricsLookup',[JSON.stringify(request)])!=='started')return;
+        const limit=performance.now()+4500;
+        while(performance.now()<limit && this.generation===generation) {
+          await new Promise(resolve=>setTimeout(resolve,150));
+          if(this.generation!==generation)return;
+          const raw=nativeApi.call('floatingcloud.lyricsPoll',[]);
+          if(!raw)continue;
+          const response=JSON.parse(raw);
+          if(response.trackKey!==key)continue;
+          this.chorusIntervals=Core.normalizeChorusIntervals(response.chorus,this.durationMs);
+          this.chorusLoaded=true;
+          const cached=this.cache.get(key);
+          if(cached)this.cache.set(key,{...cached,chorusIntervals:this.chorusIntervals,chorusLoaded:true});
+          notify();return;
+        }
+      }catch(e){console.warn('[FloatingCloud] chorus lookup',e);}
+      finally {this.chorusBusy=false;if(this.chorusPending){this.chorusPending=false;this.requestChorus();}}
     }
     refresh() {
       const song = this.api?.getCurrentSong?.();
@@ -249,6 +296,7 @@
     }
     destroy() {
       ++this.generation; clearTimeout(this.songTask); this.songTask=null;
+      this.chorusPending=false;
       clearInterval(this.retry); this.cancel?.abort();
       for (const [name, fn] of this.listeners) this.api?.removeEventListener(name, fn);
       this.listeners = [];
@@ -336,9 +384,10 @@
       this.locked=false;plugin.setConfig('desktop-locked-v1',false);
       this.call('lock',['false']);this.message='已解锁：按住歌词本身即可拖动';
     }
-    applySettings(s) {
+    applySettings(s,glowOnly=false) {
       if (!this.enabled)return;
       this.call('settings',[JSON.stringify({...s,widthGuide:this.widthAdjusting})]);
+      if(glowOnly)return;
       this.call('width',[String(Math.round(s.width))]);
       const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
       this.call('height',[String(92+pitch*2+8)]);
@@ -432,8 +481,8 @@
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
-  .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
-  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 220ms ease}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
@@ -490,7 +539,13 @@
       this.glowActive = false;
     }
     applySettings(s) {
+      const old=this.settings;
+      const glowKeys=['chorusGlowEnabled','chorusGlowIntensity','chorusGlowStyle'];
+      const glowOnly=old && glowKeys.some(key=>old[key]!==s[key]) &&
+        Object.keys(s).every(key=>glowKeys.includes(key)||old[key]===s[key]);
       this.settings = s;
+      this.applyGlowSettings(s);
+      if(glowOnly)return; // preserve live rows and an in-flight roll while editing glow
       this.pairMode = Boolean(s.showTranslation && this.lines.some(line=>String(line?.translation||'').trim()));
       // Use fixed row boxes: font difference is only a visual scale.
       this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
@@ -506,14 +561,6 @@
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
-      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
-      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
-        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
-      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
-      v.setProperty('--fc-glow-blur',radius+'px');
-      v.setProperty('--fc-glow-wide',radius*2+'px');
-      v.setProperty('--fc-glow-alpha',String(alpha));
-      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
       // TBL's calibrated text-shadow keeps transparency consistent across
       // untranslated, translated and unplayed segments. Legacy stroke/shadow
       // settings remain in config for backward compatibility, not applied in
@@ -524,13 +571,25 @@
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
-      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
-        this.setGlow(false);
       this.cancelTransition();
       if (this.index !== null) {
         this.draw();
         this.renderScan(Core.lineProgress(this.lines, this.index, this.lastPosition), this.lastPosition, this.scanRows[0]);
       }
+    }
+    applyGlowSettings(s) {
+      const v=this.stage.style;
+      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
+      const radius={soft:6,standard:9,bright:13}[s.chorusGlowStyle]||6;
+      const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
+        ({soft:.8,standard:1,bright:1.15}[s.chorusGlowStyle]||.8));
+      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-blur',radius+'px');
+      v.setProperty('--fc-glow-wide',radius*2+'px');
+      v.setProperty('--fc-glow-alpha',String(alpha));
+      v.setProperty('--fc-glow-far-alpha',String(alpha*.42));
+      if(!s.chorusGlowEnabled || !s.enableWordScan || s.chorusGlowIntensity<=0)
+        this.setGlow(false);
     }
     setLines(lines) {
       if (this.lines === lines) return;

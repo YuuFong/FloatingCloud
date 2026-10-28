@@ -11,7 +11,7 @@ using TaskbarLyrics.Core.Services;
 
 record Request(string TrackKey, string Title, string Artist, string Album, double DurationMs,
     string Mode = "online-first", string[]? LocalFolders = null, bool OfflineHint = false,
-    long NcmId = 0, bool ChorusEnabled = false);
+    long NcmId = 0, bool ChorusEnabled = false, bool ChorusOnly = false);
 record ChorusSegment(double startMs, double endMs);
 record WordResult(string text, double start, double duration);
 record LineResult(double time, double duration, string text, string translation, WordResult[] words, string kind);
@@ -219,8 +219,9 @@ static class Program
             if(q is null)return 3;
             using var chorusTimeout=new CancellationTokenSource(TimeSpan.FromSeconds(3));
             var chorusTask=LookupChorus(q,chorusTimeout.Token);
-            var result=await Lookup(q);
-            result=result with { chorus=await chorusTask };
+            var result=q.ChorusOnly
+                ? new Response(q.TrackKey,"","none",false,[],null,await chorusTask)
+                : (await Lookup(q)) with { chorus=await chorusTask };
             await File.WriteAllTextAsync(output,JsonSerializer.Serialize(result),new UTF8Encoding(false));
             return 0;
         }catch(Exception e) {
