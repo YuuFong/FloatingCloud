@@ -373,7 +373,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
             if(wp==kSpectrumUpdateTimer){
-                // TBL-like ~30 fps spectral updates, independent of JS's
+                // TBL-like ~60 fps spectral updates, independent of JS's
                 // slower playback state/timeline polling.
                 if(visible && webReady && fc_spectrum::available())
                     sendToWeb("spectrum",fc_spectrum::readJson());
