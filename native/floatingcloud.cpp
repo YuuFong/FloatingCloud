@@ -37,6 +37,7 @@ constexpr UINT kVisible = WM_APP + 104;
 constexpr UINT kLock = WM_APP + 105;
 constexpr UINT kResize = WM_APP + 106;
 constexpr UINT kShutdown = WM_APP + 107;
+constexpr UINT kHeight = WM_APP + 108;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -55,7 +56,7 @@ POINT dragWindowOrigin{};
 bool visible = false;
 bool webReady = false;
 int width = 740;
-int height = 165;
+int height = 196; // dynamically adjusted from two-row metrics
 std::string latestSettings = "{}";
 std::string latestLyrics = "{}";
 std::string latestFrame = "{}";
@@ -105,6 +106,7 @@ void setLock(bool lock) {
     // top-level window is required to let clicks reach other processes.
     // Keep WS_EX_NOREDIRECTIONBITMAP for the DirectComposition visual tree;
     // the layered+composition combination must be verified on the target OS.
+    if (lock) { controlsVisible=false; settingsPopupOpen=false; lyricPointerDown=false; }
     if (lock) style |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
     else style &= ~(static_cast<LONG_PTR>(WS_EX_TRANSPARENT) | WS_EX_LAYERED);
     SetWindowLongPtrW(window,GWL_EXSTYLE,style);
@@ -238,8 +240,9 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_LBUTTONDOWN: {
             if(locked) return 0;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
-            // Reserve upper 58px for the toolbar; any lyric text starts dragging.
-            if (!(controlsVisible && p.y < 58) && !(settingsPopupOpen && p.y < 110)) {
+            // 0..64px is reserved for the toolbar / optional information.
+            // Drag only on the actual lyric area; never consume toolbar clicks.
+            if (p.y >= 64 && p.y < height) {
                 lyricPointerDown=true;lyricDidDrag=false;
                 GetCursorPos(&dragStartScreen);
                 RECT wr{};GetWindowRect(h,&wr);
@@ -295,6 +298,11 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case kLock:setLock(wp!=0);return 0;
         case kResize: {
             width=std::max(300,std::min(1200,static_cast<int>(wp)));
+            SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
+            return 0;
+        }
+        case kHeight: {
+            height=std::max(110,std::min(400,static_cast<int>(wp)));
             SetWindowPos(h,HWND_TOPMOST,0,0,width,height,SWP_NOMOVE|SWP_NOACTIVATE);
             return 0;
         }
@@ -396,6 +404,11 @@ static const char* setWidth(void** a){
     HWND h=fc::hwnd.load();
     return h&&a&&a[0]&&PostMessageW(h,fc::kResize,static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+static const char* setHeight(void** a){
+    HWND h=fc::hwnd.load();
+    return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
+        static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
+}
 static const char* poll(void**){
     switch(fc::requestedAction.exchange(0)){
         case 1:return "previous";case 2:return "toggle";case 3:return "next";
@@ -421,6 +434,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.timeline",setFrame);
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
+    api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
     api->addNativeAPI(nullptr,0,"floatingcloud.poll",poll);
     api->addNativeAPI(nullptr,0,"floatingcloud.shutdown",shutdown);
     return 0;
