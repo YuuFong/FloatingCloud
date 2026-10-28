@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.33-beta';
+  const VERSION = '0.4.34-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -473,9 +473,8 @@
   .fc-stage.fc-rolling{clip-path:inset(32px 0 0 0)}
   .fc-track{position:absolute;top:32px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
   .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
-  /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
-     row, never an opaque drop-shadow/outline that changes apparent opacity. */
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:visible;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
+  /* Keep glyphs flat; a shadow on the row is inherited by every scan layer. */
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:visible;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,300ms) cubic-bezier(0.22,0.72,0.24,1),color var(--fc-roll-ms,300ms) ease}
   /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
      60% next × .72. No additional row opacity for translations. */
   .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
@@ -491,8 +490,8 @@
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
   .fc-text-base{display:block;white-space:nowrap}
-  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0),0 0 0 rgba(var(--fc-glow-rgb,255,255,255),0);transition:text-shadow 420ms ease-in-out}
-  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base{text-shadow:0 1px 2px rgba(0,0,0,.36),0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
+  .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base,.fc-line-primary .fc-text-highlight,.fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 0 transparent,0 0 0 transparent;transition:text-shadow 420ms ease-in-out}
+  .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
   /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
      The 90%-alpha played segment is a separate clipped/masked layer.
@@ -574,16 +573,14 @@
       v.setProperty('--fc-secondary-scale',String((s.fontSize-5)/s.fontSize));
       v.setProperty('--fc-roll-ms',(300/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
-      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
-      const palette=Core.lyricPalette(s.foregroundMode,schemeLight);
+      // The lyric window is transparent: the WebView theme says nothing about
+      // the desktop behind it. Keep the automatic foreground bright.
+      const palette=Core.lyricPalette(s.foregroundMode,false);
       v.setProperty('--fc-color', palette.primary);
       v.setProperty('--fc-translation', palette.translation);
       v.setProperty('--fc-next', palette.secondary);
       v.setProperty('--fc-highlight', palette.scan);
-      // TBL's calibrated text-shadow keeps transparency consistent across
-      // untranslated, translated and unplayed segments. Legacy stroke/shadow
-      // settings remain in config for backward compatibility, not applied in
-      // the faithful TBL color mode.
+      // Legacy stroke/shadow settings remain in config for compatibility.
       v.setProperty('--fc-align', s.align);
       v.fontFamily = s.font;
       v.height = (this.pitch * 2 + 32) + 'px'; // top glow gutter; row 3 stays clipped
@@ -598,11 +595,10 @@
     }
     applyGlowSettings(s) {
       const v=this.stage.style;
-      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
       const radius={soft:6,standard:9}[s.chorusGlowStyle]||6;
       const alpha=Math.min(.85,Math.sqrt(s.chorusGlowIntensity/100)*.85*
         ({soft:.8,standard:1}[s.chorusGlowStyle]||.8));
-      v.setProperty('--fc-glow-rgb',schemeLight?'17,24,39':'255,255,255');
+      v.setProperty('--fc-glow-rgb',s.foregroundMode==='dark'?'17,24,39':'255,255,255');
       v.setProperty('--fc-glow-blur',radius+'px');
       v.setProperty('--fc-glow-wide',radius*2+'px');
       v.setProperty('--fc-glow-alpha',String(alpha));
