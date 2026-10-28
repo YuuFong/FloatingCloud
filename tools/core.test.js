@@ -218,3 +218,34 @@ test('spectrum display mode is validated independently of spacing setting',()=>{
  assert.equal(C.normalizeSettings({spectrumMode:'lyrics-only'}).spectrumMode,'lyrics-only');
  assert.equal(C.normalizeSettings({spectrumMode:'invalid'}).spectrumMode,'auto');
 });
+
+test('instrumental metadata plus a placeholder is still instrumental',()=>{
+ const lines=[
+  {time:0,text:'作曲 : Franz Schubert'},
+  {time:1000,text:'编曲：Studio Orchestra'},
+  {time:5000,text:'纯音乐，请欣赏'}
+ ];
+ assert.equal(C.isLyricCredit(lines[0]),true);
+ assert.equal(C.isLyricCredit(lines[1]),true);
+ assert.equal(C.isInstrumentalRecord(lines),true);
+ assert.equal(C.shouldDisplaySpectrum(lines,false,false,'auto'),true);
+ assert.equal(C.shouldDisplaySpectrum([...lines,{time:6000,text:'实际唱出的歌词'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'作曲：张三'}],false,false,'auto'),false);
+ assert.equal(C.shouldDisplaySpectrum(lines,false,true,'auto'),false);
+});
+test('NCM instrumental flag is read as metadata, not inferred from an arbitrary title',()=>{
+ assert.equal(C.isNcmInstrumental({mark:131072}),true);
+ assert.equal(C.isNcmInstrumental({mark:131072+262144}),true);
+ assert.equal(C.isNcmInstrumental({mark:131071}),false);
+ assert.equal(C.isNcmInstrumental({mark:0}),false);
+ assert.equal(C.isNcmInstrumental({nolyric:true}),true);
+ assert.equal(C.isNcmInstrumental({songName:'Black Sails'}),false);
+ assert.equal(C.shouldDisplaySpectrum([{text:'ordinary lyric'}],false,false,'auto',true),true);
+ assert.equal(C.shouldDisplaySpectrum([{text:'ordinary lyric'}],false,false,'lyrics-only',true),false);
+});
+test('TaskbarLyrics 0.90/0.70/0.60 with line opacities keeps translation between main and next',()=>{
+ const p=C.lyricPalette('light',false);
+ const main=0.9*0.98, translation=0.7, secondary=0.6*0.72;
+ assert.ok(main>translation && translation>secondary);
+ assert.equal(p.translation,'rgba(255,255,255,0.7)');
+});
