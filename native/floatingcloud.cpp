@@ -40,6 +40,8 @@ constexpr UINT kLock = WM_APP + 105;
 constexpr UINT kResize = WM_APP + 106;
 constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
+constexpr UINT_PTR kHoverCheckTimer = 2401;
+constexpr int kUnlockButtonId = 2402;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -53,6 +55,9 @@ bool locked = false; // accessed only from window thread
 bool lyricPointerDown=false, lyricDidDrag=false;
 bool settingsPopupOpen=false;
 bool controlsVisible=false;
+HWND unlockButton=nullptr;
+ULONGLONG hoveredSince=0;
+POINT lastHoverPoint{};
 POINT dragStartScreen{};
 POINT dragWindowOrigin{};
 bool visible = false;
@@ -99,6 +104,44 @@ void sizeController() {
     RECT r{}; GetClientRect(hwnd.load(),&r);
     controller->put_Bounds(r);
 }
+void hideUnlockButton() {
+    if(unlockButton && IsWindow(unlockButton)) ShowWindow(unlockButton,SW_HIDE);
+    hoveredSince=0;
+}
+void checkLockedHover() {
+    HWND main=hwnd.load();
+    if(!main || !locked || !visible || !IsWindowVisible(main)){
+        hideUnlockButton();return;
+    }
+    POINT point{};
+    if(!GetCursorPos(&point))return;
+    RECT lyricWindow{};
+    if(!GetWindowRect(main,&lyricWindow))return;
+    RECT lyricArea=lyricWindow;
+    lyricArea.top+=92;
+    // Keep the button clickable while traversing the gap above the lyrics.
+    RECT popupArea{};
+    const bool popupVisible=unlockButton&&IsWindowVisible(unlockButton);
+    if(popupVisible) {
+        GetWindowRect(unlockButton,&popupArea);
+        lyricArea.top-=60;
+    }
+    const bool hovering=PtInRect(&lyricArea,point)||
+        (popupVisible&&PtInRect(&popupArea,point));
+    if(!hovering) {hideUnlockButton();return;}
+    const ULONGLONG now=GetTickCount64();
+    if(hoveredSince==0 || abs(point.x-lastHoverPoint.x)>3 || abs(point.y-lastHoverPoint.y)>3) {
+        lastHoverPoint=point;
+        if(!popupVisible)hoveredSince=now;
+    }
+    if(!popupVisible && now-hoveredSince>=1000 && unlockButton) {
+        const int buttonWidth=104,buttonHeight=30;
+        const int x=lyricWindow.left+(lyricWindow.right-lyricWindow.left-buttonWidth)/2;
+        const int y=lyricWindow.top+55;
+        SetWindowPos(unlockButton,HWND_TOPMOST,x,y,buttonWidth,buttonHeight,
+            SWP_NOACTIVATE|SWP_SHOWWINDOW);
+    }
+}
 void setLock(bool lock) {
     locked = lock;
     HWND window=hwnd.load();
@@ -109,6 +152,7 @@ void setLock(bool lock) {
     // Keep WS_EX_NOREDIRECTIONBITMAP for the DirectComposition visual tree;
     // the layered+composition combination must be verified on the target OS.
     if (lock) { controlsVisible=false; settingsPopupOpen=false; lyricPointerDown=false; }
+    hideUnlockButton();
     if (lock) style |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
     else style &= ~(static_cast<LONG_PTR>(WS_EX_TRANSPARENT) | WS_EX_LAYERED);
     SetWindowLongPtrW(window,GWL_EXSTYLE,style);
@@ -232,6 +276,16 @@ void forwardMouse(UINT msg, WPARAM wp, LPARAM lp) {
 }
 LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
     switch(msg) {
+        case WM_TIMER:
+            if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
+            break;
+        case WM_COMMAND:
+            if(LOWORD(wp)==kUnlockButtonId && HIWORD(wp)==BN_CLICKED){
+                setLock(false);
+                requestedAction.store(10);
+                return 0;
+            }
+            break;
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(h,&p);
@@ -244,7 +298,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
             // 0..64px is reserved for the toolbar / optional information.
             // Drag only on the actual lyric area; never consume toolbar clicks.
-            if (p.y >= 72 && p.y < height) {
+            if (p.y >= 92 && p.y < height) {
                 lyricPointerDown=true;lyricDidDrag=false;
                 GetCursorPos(&dragStartScreen);
                 RECT wr{};GetWindowRect(h,&wr);
@@ -311,6 +365,8 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case kShutdown:case WM_CLOSE:
             closeWeb();DestroyWindow(h);return 0;
         case WM_DESTROY:
+            KillTimer(h,kHoverCheckTimer);
+            if(unlockButton){DestroyWindow(unlockButton);unlockButton=nullptr;}
             hwnd.store(nullptr);PostQuitMessage(0);return 0;
     }
     return DefWindowProcW(h,msg,wp,lp);
@@ -328,7 +384,14 @@ DWORD WINAPI windowThread(LPVOID) {
         klass,L"FloatingCloud Desktop Lyrics",WS_POPUP,
         (screenW-width)/2,screenH*3/4,width,height,nullptr,nullptr,module,nullptr);
     if(!h){state.store(3);SetEvent(createdEvent);CoUninitialize();return 1;}
-    hwnd.store(h);SetEvent(createdEvent);
+    hwnd.store(h);
+    // Separate popup: the lyric window remains fully click-through when locked.
+    // An owned top-level BUTTON can receive clicks while the transparent lyrics cannot.
+    unlockButton=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,
+        L"BUTTON",L"解除锁定",WS_POPUP|BS_PUSHBUTTON,
+        0,0,104,30,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUnlockButtonId)),module,nullptr);
+    SetTimer(h,kHoverCheckTimer,100,nullptr);
+    SetEvent(createdEvent);
     initWebView();
     MSG m{};
     while(GetMessageW(&m,nullptr,0,0)>0){TranslateMessage(&m);DispatchMessageW(&m);}
@@ -433,7 +496,8 @@ static const char* poll(void**){
         case 1:return "previous";case 2:return "toggle";case 3:return "next";
         case 4:return "close";case 5:return "lock";
         case 6:return "seekBack";case 7:return "seekForward";
-        case 8:return "fontSmaller";case 9:return "fontLarger";default:return "";
+        case 8:return "fontSmaller";case 9:return "fontLarger";
+        case 10:return "unlock";default:return "";
     }
 }
 static const char* shutdown(void**){fc::stopHost();return "ok";}
