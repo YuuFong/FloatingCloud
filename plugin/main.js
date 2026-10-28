@@ -236,7 +236,10 @@
          Math.abs(x)>100000||Math.abs(y)>100000)return null;
       return {x,y};
     }
-    rememberPosition(value=this.call('getPosition')) {
+    // Only a completed user drag may update the persisted placement.
+    // Reading GetWindowRect on unload also captures transient HWND/DPI/clamp
+    // positions and can cause a downward drift on every client restart.
+    rememberPosition(value) {
       const position=this.parsePosition(value);
       if(!position)return;
       const saved=plugin.getConfig('desktop-position-v1',null);
@@ -271,7 +274,7 @@
       this.message='窗口正在打开';return true;
     }
     disable() {
-      if(this.enabled)this.rememberPosition();
+      if(this.enabled)this.rememberPosition(this.call('movedPosition'));
       this.enabled=false;
       plugin.setConfig('desktop-visible-v1', false);
       clearInterval(this.timer);this.timer=null;
@@ -337,7 +340,7 @@
       this.call('timeline',[JSON.stringify({positionMs:(song?.clock.position()||0)+settings.offsetMs,playing: Boolean(song?.clock.isPlaying())})]);
     }
     shutdown() {
-      if(this.enabled)this.rememberPosition();
+      if(this.enabled)this.rememberPosition(this.call('movedPosition'));
       clearInterval(this.timer);this.timer=null;
       this.call('spectrumEnabled',['false']);this.spectrumCapture=false;this.call('shutdown');
     }
@@ -597,7 +600,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.7（自动识别网易云下载目录测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.8（窗口位置与悬停解锁修复版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);

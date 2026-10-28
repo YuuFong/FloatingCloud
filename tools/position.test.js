@@ -57,6 +57,7 @@ function boot(options={}) {
   const tick=()=>{const t=timers.find(t=>t.ms===100);assert.ok(t);t.fn()};
   return {saved,calls,writes,tick,
     move:(x,y)=>{actualPosition=x+','+y;changed=actualPosition;},
+    repositionWithoutDrag:(x,y)=>{actualPosition=x+','+y;},
     unload:()=>onUnload?.(),
     beforeUnload:()=>beforeUnload?.()
   };
@@ -89,4 +90,28 @@ test('malformed/offscale positions are ignored without breaking startup',()=>{
    const h=boot({'desktop-position-v1':bad});
    assert.equal(h.calls.some(c=>c.id==='floatingcloud.setPosition'),false);
  }
+});
+
+test('startup/resize/OS-induced window coordinates never rewrite saved placement on shutdown',()=>{
+ const h=boot({'desktop-position-v1':{x:-925,y:260}});
+ // These are transient HWND coordinates, not user drags. Historically both
+ // disable and shutdown persisted GetWindowRect and caused restart drift.
+ h.repositionWithoutDrag(-925,322);
+ h.unload();
+ assert.equal(h.saved['desktop-position-v1'].x,-925);
+ assert.equal(h.saved['desktop-position-v1'].y,260);
+ assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,0);
+ assert.equal(h.calls.filter(c=>c.id==='floatingcloud.getPosition').length,0);
+ const restarted=boot({...h.saved});
+ assert.equal(restarted.calls.find(c=>c.id==='floatingcloud.setPosition').args[0],'-925,260');
+});
+test('drag completion just before shutdown is flushed once to config',()=>{
+ const h=boot({'desktop-position-v1':{x:120,y:150}});
+ h.move(124,352);
+ h.beforeUnload();
+ assert.equal(h.saved['desktop-position-v1'].x,124);
+ assert.equal(h.saved['desktop-position-v1'].y,352);
+ assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,1);
+ h.unload();
+ assert.equal(h.writes.filter(w=>w.k==='desktop-position-v1').length,1);
 });

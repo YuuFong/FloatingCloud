@@ -43,7 +43,6 @@ constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
 constexpr UINT kSetPosition = WM_APP + 109;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
-constexpr int kUnlockButtonId = 2402;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -60,7 +59,6 @@ bool controlsVisible=false;
 std::atomic<bool> positionChanged{false};
 HWND unlockButton=nullptr;
 ULONGLONG hoveredSince=0;
-POINT lastHoverPoint{};
 POINT dragStartScreen{};
 POINT dragWindowOrigin{};
 bool visible = false;
@@ -137,39 +135,36 @@ void hideUnlockButton() {
     if(unlockButton && IsWindow(unlockButton)) ShowWindow(unlockButton,SW_HIDE);
     hoveredSince=0;
 }
+// A locked overlay is mouse-transparent and does not receive WM_MOUSEMOVE.
+// Poll global cursor position instead. Hover is a duration INSIDE the lyric
+// window, not a requirement to hold the mouse perfectly still for one second.
 void checkLockedHover() {
     HWND main=hwnd.load();
     if(!main || !locked || !visible || !IsWindowVisible(main)){
         hideUnlockButton();return;
     }
     POINT point{};
-    if(!GetCursorPos(&point))return;
-    RECT lyricWindow{};
-    if(!GetWindowRect(main,&lyricWindow))return;
-    RECT lyricArea=lyricWindow;
-    lyricArea.top+=92;
-    // Keep the button clickable while traversing the gap above the lyrics.
+    RECT lyricArea{};
+    if(!GetCursorPos(&point) || !GetWindowRect(main,&lyricArea))return;
+    // Whole overlay is an intentional unlock hotspot: the actual lyric lines
+    // move within it, so limiting hover to y >= 92 can miss visible text.
     RECT popupArea{};
-    const bool popupVisible=unlockButton&&IsWindowVisible(unlockButton);
-    if(popupVisible) {
-        GetWindowRect(unlockButton,&popupArea);
-        lyricArea.top-=60;
-    }
-    const bool hovering=PtInRect(&lyricArea,point)||
-        (popupVisible&&PtInRect(&popupArea,point));
-    if(!hovering) {hideUnlockButton();return;}
+    const bool popupVisible=unlockButton && IsWindowVisible(unlockButton);
+    if(popupVisible) GetWindowRect(unlockButton,&popupArea);
+    const bool withinOverlay=PtInRect(&lyricArea,point);
+    const bool withinPopup=popupVisible && PtInRect(&popupArea,point);
+    if(!withinOverlay && !withinPopup) {hideUnlockButton();return;}
+    if(popupVisible)return; // Never reset the timer while moving to the button.
     const ULONGLONG now=GetTickCount64();
-    if(hoveredSince==0 || abs(point.x-lastHoverPoint.x)>3 || abs(point.y-lastHoverPoint.y)>3) {
-        lastHoverPoint=point;
-        if(!popupVisible)hoveredSince=now;
-    }
-    if(!popupVisible && now-hoveredSince>=1000 && unlockButton) {
-        const int buttonWidth=104,buttonHeight=30;
-        const int x=lyricWindow.left+(lyricWindow.right-lyricWindow.left-buttonWidth)/2;
-        const int y=lyricWindow.top+55;
-        SetWindowPos(unlockButton,HWND_TOPMOST,x,y,buttonWidth,buttonHeight,
-            SWP_NOACTIVATE|SWP_SHOWWINDOW);
-    }
+    if(!hoveredSince){hoveredSince=now;return;}
+    if(now-hoveredSince<800 || !unlockButton)return;
+    const int buttonWidth=110,buttonHeight=32;
+    const int x=lyricArea.left+(lyricArea.right-lyricArea.left-buttonWidth)/2;
+    const int y=lyricArea.top+std::min(52,std::max(6,height-buttonHeight));
+    // This is an independent owned popup WITHOUT WS_EX_TRANSPARENT. The
+    // lyric surface remains click-through, but the unlock button is clickable.
+    SetWindowPos(unlockButton,HWND_TOPMOST,x,y,buttonWidth,buttonHeight,
+        SWP_NOACTIVATE|SWP_SHOWWINDOW);
 }
 void setLock(bool lock) {
     locked = lock;
@@ -188,6 +183,44 @@ void setLock(bool lock) {
     if(lock) SetLayeredWindowAttributes(window,0,255,LWA_ALPHA);
     SetWindowPos(window,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_FRAMECHANGED);
     sendToWeb("locked",lock?"true":"false");
+}
+// A separate non-transparent owned popup owns its mouse events directly.
+// A WS_POPUP 'BUTTON' reporting BN_CLICKED to its owner is unreliable on some
+// Windows builds; the custom popup avoids depending on WM_COMMAND propagation.
+LRESULT CALLBACK unlockProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
+    switch(msg) {
+        case WM_MOUSEACTIVATE:return MA_NOACTIVATE;
+        case WM_NCHITTEST:return HTCLIENT;
+        case WM_LBUTTONDOWN:SetCapture(h);return 0;
+        case WM_LBUTTONUP: {
+            if(GetCapture()==h)ReleaseCapture();
+            POINT cursor{};
+            RECT area{};
+            if(GetCursorPos(&cursor) && GetWindowRect(h,&area) &&
+               PtInRect(&area,cursor) && locked) {
+                setLock(false);
+                requestedAction.store(10); // also update persisted JS setting
+            }
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps{};
+            HDC dc=BeginPaint(h,&ps);
+            RECT rect{};
+            GetClientRect(h,&rect);
+            HBRUSH fill=CreateSolidBrush(RGB(30,39,56));
+            FillRect(dc,&rect,fill);
+            DeleteObject(fill);
+            SetBkMode(dc,TRANSPARENT);
+            SetTextColor(dc,RGB(240,245,255));
+            auto old=SelectObject(dc,GetStockObject(DEFAULT_GUI_FONT));
+            DrawTextW(dc,L"解除锁定",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            SelectObject(dc,old);
+            EndPaint(h,&ps);
+            return 0;
+        }
+    }
+    return DefWindowProcW(h,msg,wp,lp);
 }
 void closeWeb() {
     webReady = false;
@@ -308,13 +341,6 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
             break;
-        case WM_COMMAND:
-            if(LOWORD(wp)==kUnlockButtonId && HIWORD(wp)==BN_CLICKED){
-                setLock(false);
-                requestedAction.store(10);
-                return 0;
-            }
-            break;
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(h,&p);
@@ -425,12 +451,19 @@ DWORD WINAPI windowThread(LPVOID) {
         (screenW-width)/2,screenH*3/4,width,height,nullptr,nullptr,module,nullptr);
     if(!h){state.store(3);SetEvent(createdEvent);CoUninitialize();return 1;}
     hwnd.store(h);
-    // Separate popup: the lyric window remains fully click-through when locked.
-    // An owned top-level BUTTON can receive clicks while the transparent lyrics cannot.
+    // The unlock control is a separately painted, click-capable popup.
+    // It is not WS_EX_TRANSPARENT, even when its owning lyric HWND is locked.
+    const wchar_t* popupClass=L"FloatingCloud_Unlock_Popup_048";
+    WNDCLASSEXW popup{sizeof(popup)};
+    popup.hInstance=module;
+    popup.lpfnWndProc=unlockProc;
+    popup.lpszClassName=popupClass;
+    popup.hCursor=LoadCursor(nullptr,IDC_HAND);
+    RegisterClassExW(&popup);
     unlockButton=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,
-        L"BUTTON",L"解除锁定",WS_POPUP|BS_PUSHBUTTON,
-        0,0,104,30,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUnlockButtonId)),module,nullptr);
-    SetTimer(h,kHoverCheckTimer,100,nullptr);
+        popupClass,L"解除锁定",WS_POPUP,
+        0,0,110,32,h,nullptr,module,nullptr);
+    SetTimer(h,kHoverCheckTimer,80,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
