@@ -3,9 +3,9 @@
   "manifest_version": 1,
   "name": "FloatingCloud",
   "slug": "floatingcloud-lite",
-  "version": "0.4.6-beta",
+  "version": "0.4.7-beta",
   "author": "FloatingCloud",
-  "description": "新增 TBL 本地歌词提供者：在线优先/本地优先/仅本地模式，支持离线播放目录匹配及时间轴，保留窗口位置记忆。",
+  "description": "自动读取网易云音乐的下载目录，用于离线本地歌词检索；保留在线优先、自定义目录、双行歌词、频谱和位置记忆。",
   "type": "extension",
   "ncm3-compatible": true,
   "ncm-version-req": ">=3.1.42 <3.1.43",
@@ -15,6 +15,9 @@
     "Main": [
       {
         "file": "core.js"
+      },
+      {
+        "file": "ncm-path.js"
       },
       {
         "file": "vendor/tbl-presentation.js"
