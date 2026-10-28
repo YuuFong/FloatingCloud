@@ -34,14 +34,22 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #stage{z-index:2;width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
 #stage .fc-track{top:0}
 #stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
+#stage .fc-line-translation,#stage .fc-line-secondary{
+  -webkit-text-stroke:0 transparent!important;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,.36));
+}
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
 #root.controls-open #state{opacity:.85}
 #stage{cursor:grab}#stage:active{cursor:grabbing}
 #mini-settings{position:absolute;left:50%;top:46px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
 #mini-settings.open{display:flex;align-items:center;gap:8px}
 #mini-settings button{background:transparent;color:white;border:0;border-radius:0;padding:3px 8px;cursor:pointer}
-#spectrum{width:100%;position:absolute;top:92px;left:0;right:0;bottom:0;display:none;
- align-items:center;justify-content:center;gap:var(--fc-spectrum-gap,3px);pointer-events:none;opacity:0;transition:opacity 300ms ease}
+/* The original + translation/next rows sit at 92..(92+2*pitch).
+   Spectrum axis = midpoint between row centers, nudged 9px upward. */
+#spectrum{width:100%;position:absolute;top:calc(92px + var(--fc-line-pitch,53px) - 9px);
+ left:0;right:0;height:100px;transform:translateY(-50%);display:none;
+ align-items:center;justify-content:center;gap:var(--fc-spectrum-gap,3px);
+ pointer-events:none;opacity:0;transition:opacity 300ms ease}
 #root.pure-music #spectrum{display:flex;opacity:.95}
 #root.pure-music #stage{visibility:hidden}
 #spectrum span{width:3px;min-width:3px;height:5px;background:var(--fc-spectrum-color,#d4d9e5);
@@ -109,7 +117,7 @@ function renderSpectrumFrame(now){
    const old=spectrumVisuals[i],rate=target>old?.70:.35;
    const value=old+(target-old)*(1-Math.pow(1-rate,elapsed));
    spectrumVisuals[i]=value;
-   bar.style.height=Math.round(6+value*26)+'px';
+   bar.style.height=Math.round(8+value*62)+'px';
  });
  requestAnimationFrame(renderSpectrumFrame);
 }
@@ -119,7 +127,7 @@ function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-line-pitch',Math.ceil(settings.fontSize*1.35+settings.lineGap)+'px');root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;

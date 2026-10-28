@@ -15,7 +15,7 @@ async def run():
   clip=await page.locator('.fc-text-box').first.evaluate('(el)=>el.style.getPropertyValue("--fc-progress")')
   print('word progress:',clip)
   await page.evaluate("document.querySelector('#root').classList.add('controls-open')")
-  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.12-desktop-preview.png',omit_background=True)
+  await page.screenshot(path='/mnt/data/FloatingCloud-v0.4.13-desktop-preview.png',omit_background=True)
   assert not errors, errors
   print('page errors:',errors)
   await browser.close()

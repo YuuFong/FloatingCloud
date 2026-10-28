@@ -1,4 +1,4 @@
-// FloatingCloud 0.4.12 — native WASAPI loopback spectrum input.
+// FloatingCloud 0.4.13 — native WASAPI loopback spectrum input.
 // Adapted from TaskbarLyrics v1.7.4 SystemAudioSpectrumService (MIT).
 // No synthetic/random audio samples. Capture starts only in instrumental mode.
 #pragma once
