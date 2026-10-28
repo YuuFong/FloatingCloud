@@ -43,6 +43,7 @@ constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
 constexpr UINT kSetPosition = WM_APP + 109;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
+constexpr UINT_PTR kSpectrumUpdateTimer = 2403;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -59,6 +60,9 @@ bool controlsVisible=false;
 // Drag end is the only event allowed to update the saved position.
 std::atomic<bool> positionChanged{false};
 std::atomic<int> draggedX{0}, draggedY{0};
+// Staged synchronously from JS BEFORE the first native HWND is created.
+std::atomic<bool> initialPlacementValid{false};
+std::atomic<int> initialX{0}, initialY{0};
 bool hasPlacement=false; // accessed only from the UI thread
 POINT desiredPlacement{};
 HWND unlockButton=nullptr;
@@ -368,6 +372,13 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
     switch(msg) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
+            if(wp==kSpectrumUpdateTimer){
+                // TBL-like ~30 fps spectral updates, independent of JS's
+                // slower playback state/timeline polling.
+                if(visible && webReady && fc_spectrum::available())
+                    sendToWeb("spectrum",fc_spectrum::readJson());
+                return 0;
+            }
             break;
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
@@ -431,7 +442,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_SIZE:sizeController();return 0;
         case kFrame: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
-            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);if(fc_spectrum::available())sendToWeb("spectrum",fc_spectrum::readJson());}return 0;
+            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);}return 0;
         }
         case kLyrics: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
@@ -476,6 +487,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
             closeWeb();DestroyWindow(h);return 0;
         case WM_DESTROY:
             KillTimer(h,kHoverCheckTimer);
+            KillTimer(h,kSpectrumUpdateTimer);
             if(unlockButton){DestroyWindow(unlockButton);unlockButton=nullptr;}
             hwnd.store(nullptr);PostQuitMessage(0);return 0;
     }
@@ -490,9 +502,18 @@ DWORD WINAPI windowThread(LPVOID) {
     wc.hCursor=LoadCursor(nullptr,IDC_ARROW);
     RegisterClassExW(&wc);
     int screenW=GetSystemMetrics(SM_CXSCREEN), screenH=GetSystemMetrics(SM_CYSCREEN);
+    // Construct the HWND at the *saved* coordinate before WebView2 exists.
+    // No visible window can ever appear briefly at a default position.
+    int initialLeft=(screenW-width)/2,initialTop=screenH*3/4;
+    if(initialPlacementValid.load()) {
+        desiredPlacement={initialX.load(),initialY.load()};
+        hasPlacement=true;
+        const POINT safe=visiblePosition(desiredPlacement.x,desiredPlacement.y);
+        initialLeft=safe.x;initialTop=safe.y;
+    }
     HWND h=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW|WS_EX_TOPMOST,
         klass,L"FloatingCloud Desktop Lyrics",WS_POPUP,
-        (screenW-width)/2,screenH*3/4,width,height,nullptr,nullptr,module,nullptr);
+        initialLeft,initialTop,width,height,nullptr,nullptr,module,nullptr);
     if(!h){state.store(3);SetEvent(createdEvent);CoUninitialize();return 1;}
     hwnd.store(h);
     // The unlock control is a separately painted, click-capable popup.
@@ -509,6 +530,7 @@ DWORD WINAPI windowThread(LPVOID) {
         0,0,32,32,h,nullptr,module,nullptr);
     if(unlockButton) SetLayeredWindowAttributes(unlockButton,RGB(1,2,3),0,LWA_COLORKEY);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
+    SetTimer(h,kSpectrumUpdateTimer,33,nullptr);
     SetEvent(createdEvent);
     initWebView();
     MSG m{};
@@ -594,6 +616,19 @@ static const char* setHeight(void** a){
     return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
         static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+// Stage the persisted position before opening a HWND. The JS controller calls
+// this synchronously before floatingcloud.open; no PostMessage ordering race.
+static const char* setInitialPosition(void** a) {
+    if(!a || !a[0])return "error";
+    const char* raw=static_cast<const char*>(a[0]);
+    long long x=0,y=0;char trailing=0;
+    if(std::sscanf(raw,"%lld,%lld%c",&x,&y,&trailing)!=2 ||
+       x < -100000 || x > 100000 || y < -100000 || y > 100000)return "error";
+    fc::initialX.store(static_cast<int>(x));
+    fc::initialY.store(static_cast<int>(y));
+    fc::initialPlacementValid.store(true);
+    return "ok";
+}
 // Store only x,y in plugin configuration (never store screen-dependent HWND).
 static const char* setPosition(void** a) {
     HWND h=fc::hwnd.load();
@@ -661,6 +696,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
+    api->addNativeAPI(stringArg,1,"floatingcloud.setInitialPosition",setInitialPosition);
     api->addNativeAPI(stringArg,1,"floatingcloud.setPosition",setPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.getPosition",getPosition);
     api->addNativeAPI(nullptr,0,"floatingcloud.movedPosition",movedPosition);
