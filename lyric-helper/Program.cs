@@ -168,7 +168,7 @@ static class Program
             if(local is {lines.Length:>0})return local;
         }
         return local??remote??new Response(q.TrackKey,"","none",false,[],
-            online?"no verified online or local timed lyrics":"no local timed lyrics");
+            online?"no verified online or local timed lyrics":"offline-no-local-lyrics");
     }
 
     public static async Task<int> Main(string[] args)
