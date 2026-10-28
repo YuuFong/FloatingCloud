@@ -1,20 +1,49 @@
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overflow:hidden;font-family:"Microsoft YaHei",sans-serif;color:white;user-select:none}
-#root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;position:relative}
-#drag{height:20px;position:absolute;left:10px;right:10px;top:0;cursor:move}
-#drag:before{content:"";position:absolute;left:calc(50% - 26px);width:52px;top:8px;height:3px;border-radius:8px;background:rgba(255,255,255,.18)}
-#toolbar{position:absolute;left:50%;top:17px;transform:translate(-50%,-10px);display:flex;gap:6px;border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:6px 8px;background:rgba(15,21,33,.87);box-shadow:0 8px 25px #0005;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:100}
-#root:hover #toolbar,#toolbar:focus-within{opacity:1;pointer-events:auto;transform:translate(-50%,8px)}
-#toolbar button{color:white;font:14px sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 10px;border-radius:8px}
-#toolbar button:hover,#toolbar button:focus-visible{background:#566986}
-#stage{width:100%;flex:none;min-height:0;overflow:hidden;position:relative;background:transparent!important;border:0;margin:0 auto}
-#stage .fc-track{top:23px}
-#stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
-#state{position:absolute;bottom:2px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none}
-#root:hover #state{opacity:.8}
+#root{width:100%;height:100%;padding:0 10px;box-sizing:border-box;display:block;position:relative}
+#toolbar{position:absolute;left:50%;top:49px;transform:translate(-50%,9px);display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:4px;width:max-content;max-width:calc(100% - 24px);border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s;z-index:100;white-space:nowrap}
+#root.controls-open #toolbar{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+#root.is-locked #toolbar,#root.is-locked #mini-settings{display:none!important}
+#root.settings-open #toolbar{visibility:hidden;pointer-events:none}
+#toolbar .fc-tools-left,#toolbar .fc-tools-right{display:flex;gap:4px;align-items:center;min-width:0}
+/* Compact intrinsic-width toolbar with two equal flex columns: the
+   outermost -0.5s and × edges are equidistant from the central play axis.
+   Do not stretch the toolbar to the full lyric window width. */
+#toolbar .fc-tools-left,#toolbar .fc-tools-right{justify-content:space-between}
+@media(max-width:450px){
+ #toolbar .fc-tools-left,#toolbar .fc-tools-right{gap:1px}
+ #toolbar button{font-size:11px;padding:4px 2px}
+}
+#toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
+#toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
+#resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}
+#root.width-adjusting #resize-guide{opacity:1}
+#stage{z-index:2;width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#stage .fc-track{top:0}
+/* TBL's single text-shadow belongs to all rows; do not override its
+   alpha-based primary/translation/secondary palette with FC's old filter. */
+#state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
+#root.controls-open #state{opacity:.85}
+#stage{cursor:grab}#stage:active{cursor:grabbing}
+#mini-settings{position:absolute;left:50%;top:46px;transform:translateX(-50%);border-radius:10px;padding:5px 8px;background:rgba(25,31,41,.94);display:none;z-index:101;white-space:nowrap;font-size:12px}
+#mini-settings.open{display:flex;align-items:center;gap:8px}
+#mini-settings button{background:transparent;color:white;border:0;border-radius:0;padding:3px 8px;cursor:pointer}
+/* The original + translation/next rows sit at 92..(92+2*pitch).
+   Spectrum axis = midpoint between row centers, nudged 9px upward. */
+#spectrum{width:100%;position:absolute;top:calc(92px + var(--fc-line-pitch,53px) - 9px);
+ left:0;right:0;height:100px;transform:translateY(-50%);display:none;
+ align-items:center;justify-content:center;gap:var(--fc-spectrum-gap,3px);
+ pointer-events:none;opacity:0;transition:opacity 300ms ease}
+#root.pure-music #spectrum{display:flex;opacity:.95}
+#root.pure-music #stage{visibility:hidden}
+#spectrum span{width:var(--fc-spectrum-bar-width,3px);min-width:var(--fc-spectrum-bar-width,3px);
+ flex:0 0 var(--fc-spectrum-bar-width,3px);height:5px;background:var(--fc-spectrum-color,#d4d9e5);
+ border-radius:99px;transform-origin:center bottom;box-shadow:0 1px 3px rgba(0,0,0,.6);
+ transition:background 280ms ease,opacity 260ms ease;opacity:.78}
+@media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
 </style></head><body>
-<div id="root"><div id="drag" title="按住此处拖动歌词"></div><div id="toolbar"><button data-action="previous" title="上一曲">⏮</button><button data-action="toggle" title="播放/暂停">⏯</button><button data-action="next" title="下一曲">⏭</button><button data-action="lock" title="锁定（设置页解锁）">🔒</button><button data-action="close" title="关闭歌词浮窗">✕</button></div><div id="stage" class="fc-stage"></div><div id="state"></div></div>
+<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="resize-guide" aria-hidden="true"></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
 <script>
 /* FloatingCloud Lite — lyric parsing, playback-clock and render timing primitives.
  * Original implementation. Behaviors informed by ANYNC TaskbarLyrics v1.7.4 (MIT).
@@ -44,15 +73,35 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     enabled: true,
     font: 'Microsoft YaHei, sans-serif',
     fontWeight: 600, fontSize: 30,
-    nextFontSize: 23, color: '#d4d9e5', nextColor: '#a8b2c8',
-    highlight: '#ffffff', strokeWidth: 1.4, strokeColor: '#222936',
+    foregroundMode: 'system', strokeWidth: 1.4,
     shadow: 3, lineGap: 12, align: 'center', width: 740,
-    offsetMs: 0, animationSpeed: 1, showTranslation: true,
-    enableWordScan: true
+    spectrumGap: 3, spectrumBarWidth: 3,
+    spectrumMode: 'auto',
+    offsetMs: 0, animationSpeed: 1, showTranslation: false,
+    enableWordScan: true,
+    lyricsMode: 'online-first',
+    localLyricsFolders: ''
   });
   const clamp = (n, low, high) => Math.min(high, Math.max(low, n));
   const number = (v, def) => (v !== null && v !== '' && Number.isFinite(Number(v))) ? Number(v) : def;
-  const color = (x, fallback) => /^#[0-9a-f]{6}$/i.test(String(x)) ? String(x) : fallback;
+  // TaskbarLyrics v1.7.4 ForegroundColorPolicy: one foreground base,
+  // primary 90%, translation 70%, secondary 60% alpha.
+  function lyricPalette(mode, systemUsesLightTheme = false) {
+    const darkText = mode === 'dark' || (mode === 'system' && systemUsesLightTheme);
+    const rgb = darkText ? '17,24,39' : '255,255,255';
+    return {
+      primary: `rgba(${rgb},0.9)`,
+      translation: `rgba(${rgb},0.7)`,
+      secondary: `rgba(${rgb},0.6)`,
+      // TBL's 190/255 overlay was too dim on some desktop backgrounds;
+      // this conservative render path favors contrast and stable playback.
+      // Playback hotfix: the played portion needs a visibly stronger layer.
+      // Use a plain fully opaque clip overlay, avoiding GPU mask composition.
+      scan: `rgba(${rgb},1)`,
+      stroke: darkText ? '#f8fafc' : '#222936',
+      spectrum: darkText ? '#111827' : '#ffffff'
+    };
+  }
   function normalizeSettings(input) {
     const v = Object.assign({}, DEFAULTS, input && typeof input === 'object' ? input : {});
     const validFonts = FONT_OPTIONS.map(f => f.value);
@@ -62,20 +111,25 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     return {
       enabled: Boolean(v.enabled), font, fontWeight,
       fontSize: clamp(number(v.fontSize, 30), 14, 64),
-      nextFontSize: clamp(number(v.nextFontSize, 23), 12, 56),
-      color: color(v.color, DEFAULTS.color),
-      nextColor: color(v.nextColor, DEFAULTS.nextColor),
-      highlight: color(v.highlight, DEFAULTS.highlight),
+      foregroundMode: ['system','light','dark'].includes(v.foregroundMode)
+        ? v.foregroundMode : 'system',
       strokeWidth: clamp(number(v.strokeWidth, 1.4), 0, 5),
-      strokeColor: color(v.strokeColor, DEFAULTS.strokeColor),
       shadow: clamp(number(v.shadow, 3), 0, 16),
       lineGap: clamp(number(v.lineGap, 12), 0, 40),
+      spectrumGap: clamp(number(v.spectrumGap, 3), 0, 14),
+      spectrumBarWidth: clamp(number(v.spectrumBarWidth, 3), 1, 12),
+      spectrumMode: ['auto','force-spectrum','lyrics-only'].includes(v.spectrumMode)
+        ? v.spectrumMode : 'auto',
       align: ['left', 'center', 'right'].includes(v.align) ? v.align : 'center',
       width: clamp(number(v.width, 740), 300, 1200),
       offsetMs: clamp(number(v.offsetMs, 0), -5000, 5000),
       animationSpeed: clamp(number(v.animationSpeed, 1), .5, 2),
-      showTranslation: Boolean(v.showTranslation),
-      enableWordScan: Boolean(v.enableWordScan)
+      showTranslation: Boolean(v.showTranslation), // original + translation when provided
+      enableWordScan: Boolean(v.enableWordScan),
+      lyricsMode: ['online-first','local-first','local-only'].includes(v.lyricsMode)
+        ? v.lyricsMode : 'online-first',
+      // Paths are saved only in BetterNCM settings and sent to the local .NET helper.
+      localLyricsFolders: String(v.localLyricsFolders||'').slice(0,2048)
     };
   }
   const timestampPattern = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
@@ -146,6 +200,120 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     if (!lines.some(line => line.translation) && fallbackTranslation) lines = attachTranslations(originals, fallbackTranslation);
     return { lines, kind };
   }
+  // LRCLIB Lyricsfile v1 draft: strict subset of line/word mappings.
+  // Never interpret arbitrary YAML tags, anchors or application code.
+  function parseLyricsfile(input) {
+    if (typeof input !== 'string' || input.length > 256000) return [];
+    const out = []; let inLines = false, inWords = false, current = null, word = null;
+    const val = v => {
+      v = v.trim();
+      if (v.startsWith("'") && v.endsWith("'")) return v.slice(1,-1).replace(/''/g,"'");
+      if (v.startsWith('"') && v.endsWith('"')) {
+        try { return JSON.parse(v); } catch (_) { return v.slice(1,-1); }
+      }
+      return v.replace(/\s+#.*$/,'');
+    };
+    for (const raw of input.split(/\r?\n/)) {
+      if (/^lines:\s*(?:#.*)?$/.test(raw)) { inLines = true; continue; }
+      if (!inLines) continue;
+      if (/^\S/.test(raw) && !/^lines:/.test(raw)) break;
+      let m;
+      if ((m = /^  - text:\s*(.*)$/.exec(raw))) {
+        current = { text: val(m[1]), time: NaN, duration: 0, words: [], kind: 'lyricsfile' };
+        out.push(current); inWords = false; word = null;
+      } else if (current && (m = /^    (start_ms|end_ms|text):\s*(.*)$/.exec(raw))) {
+        if (m[1] === 'text') current.text = val(m[2]);
+        else if (m[1] === 'start_ms') current.time = Number(m[2]);
+        else current.end = Number(m[2]);
+      } else if (current && /^\s{4}words:\s*$/.test(raw)) {inWords = true;}
+      else if (inWords && current && (m = /^\s{6}- text:\s*(.*)$/.exec(raw))) {
+        word = { text: val(m[1]), start: NaN, duration: 0 };
+        current.words.push(word);
+      } else if (word && (m = /^\s{8}(start_ms|end_ms|text):\s*(.*)$/.exec(raw))) {
+        if (m[1] === 'text') word.text = val(m[2]);
+        else if (m[1] === 'start_ms') word.start = Number(m[2]);
+        else word.end = Number(m[2]);
+      }
+    }
+    return out.filter(line => {
+      if (!Number.isSafeInteger(line.time) || line.time < 0 || !line.text) return false;
+      line.duration = Number.isFinite(line.end) ? Math.max(0, line.end-line.time) : 0;
+      line.words = line.words.filter(w => Number.isSafeInteger(w.start) && w.start >= 0);
+      for (let i = 0; i < line.words.length; i++) {
+        const w=line.words[i], next=line.words[i+1];
+        // Lyricsfile permits word start_ms without end_ms. Infer the end from
+        // the following word start, or the containing line's end_ms.
+        const until=Number.isFinite(w.end) ? w.end :
+          (next?.start ?? (Number.isFinite(line.end) ? line.end : w.start));
+        w.duration=Math.max(0,until-w.start);
+      }
+      if (line.words.map(w => w.text).join('').trim() !== line.text.trim()) line.words = [];
+      return true;
+    }).sort((a,b)=>a.time-b.time);
+  }
+  function normalizedSong(value) {
+    return String(value || '').normalize('NFKC').toLowerCase()
+      .replace(/[’‘“”"'·•.，,\/\\()（）[\]【】\-–—_!！?？:：]/g,'')
+      .replace(/\s+/g,'');
+  }
+  function parseLrclibRecord(record, metadata) {
+    if (!record || record.instrumental) return null;
+    const title=normalizedSong(metadata?.title);
+    const artist=normalizedSong(metadata?.artist);
+    if (!title || !artist || normalizedSong(record.trackName) !== title) return null;
+    const officialArtist = normalizedSong(record.artistName);
+    if (!officialArtist || !(officialArtist.includes(artist) || artist.includes(officialArtist))) return null;
+    const durationMs=Number(metadata?.durationMs||0);
+    if (durationMs > 0 && Number.isFinite(record.duration) &&
+        Math.abs(record.duration*1000-durationMs) > 5000) return null;
+    const wordLines=record.hasWordSync ? parseLyricsfile(record.lyricsfile) : [];
+    if (wordLines.some(l=>l.words.length)) return {lines:wordLines,kind:'lyricsfile',provider:'LRCLIB'};
+    const lines=parseLrc(record.syncedLyrics || '');
+    return lines.length ? {lines,kind:'lrc',provider:'LRCLIB'} : null;
+  }
+
+  // Music-service instrumental records frequently include technical credits
+  // preceding "纯音乐，请欣赏" (composer/arranger, etc.). They are not sung
+  // lyrics. Detect the WHOLE record, not only exact one-line placeholders.
+  function normalizeNonLyric(text) {
+    return String(text || '').normalize('NFKC').toLowerCase().trim()
+      .replace(/[\s,，。！!~～:：·•.()（）\[\]【】_\-–—]/g,'');
+  }
+  function isInstrumentalPlaceholder(line) {
+    const t = normalizeNonLyric(line?.text);
+    return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(t);
+  }
+  function isLyricCredit(line) {
+    const t=String(line?.text||'').normalize('NFKC').trim();
+    return /^(?:作曲|作词|编曲|制作人|演奏|演唱|混音|录音|母带|监制|出品|发行|音乐制作|键盘|吉他|钢琴|鼓|贝斯|小提琴|长笛|编制|composer|arranger|producer|performed by|mixed by|mastered by|written by)\s*[:：]\s*\S.{0,180}$/i.test(t);
+  }
+  function isInstrumentalRecord(lines) {
+    if(!Array.isArray(lines)||!lines.length||lines.length>24)return false;
+    // A couple credit lines plus the generic instrumental placeholder should
+    // not suppress spectrum. Without that explicit placeholder or NCM song
+    // metadata, credits alone are insufficient evidence of instrumentality.
+    const meaningful=lines.filter(l=>String(l?.text||'').trim());
+    return meaningful.length>0 &&
+      meaningful.some(isInstrumentalPlaceholder) &&
+      meaningful.every(l=>isInstrumentalPlaceholder(l)||isLyricCredit(l));
+  }
+  function isNcmInstrumental(song) {
+    if(!song || typeof song !== 'object')return false;
+    if(song.nolyric === true || song.noLyric === true || song.instrumental === true ||
+       song.isPureMusic === true)return true;
+    // NetEase song detail "mark" has an instrumental flag (bit 17).
+    // Read as a nonnegative safe integer, never coerce absent fields to zero.
+    const mark=Number(song.mark);
+    return Number.isSafeInteger(mark) && mark>0 && (Math.floor(mark/131072)%2===1);
+  }
+  function shouldDisplaySpectrum(lines, pureMusic=false, searching=false, mode='auto', trackInstrumental=false) {
+    if(mode==='lyrics-only')return false;
+    if(mode==='force-spectrum')return true;
+    if(searching)return false;
+    if(pureMusic || trackInstrumental)return true;
+    if(!Array.isArray(lines)||lines.length===0)return true;
+    return isInstrumentalRecord(lines);
+  }
   function resolveIndex(lines, timeMs) {
     if (!lines.length) return -1;
     let left = 0, right = lines.length - 1, best = -1;
@@ -170,6 +338,27 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
     if (!word.duration || word.duration < 1) return 1;
     return clamp((timeMs - word.start) / word.duration, 0, 1);
   }
+  // TaskbarLyrics-style scan position: map each timed syllable to its real
+  // substring span instead of animating an individual DOM element per word.
+  function wordScanProgress(line, timeMs) {
+    if (!line?.text || !Array.isArray(line.words) || !line.words.length) return null;
+    const text=line.text, length=text.length;
+    let readCursor=0, scanned=0;
+    for (const w of line.words) {
+      if (!w?.text) continue;
+      let offset=text.indexOf(w.text,readCursor);
+      if(offset<0) offset=Math.min(readCursor,length);
+      const width=Math.min(w.text.length,length-offset);
+      if(width<=0) continue;
+      if(timeMs<=w.start) break;
+      const progress=w.duration>0?clamp((timeMs-w.start)/w.duration,0,1):1;
+      scanned=offset+width*progress;
+      if(progress<1) break;
+      readCursor=offset+width;
+    }
+    return clamp(scanned/Math.max(1,length),0,1);
+  }
+
   // For summary indicators only; rendering uses each YRC token's own progress.
   function lyricProgress(lines, index, timeMs) {
     if (index < 0 || index >= lines.length) return 0;
@@ -198,9 +387,516 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
       reset() { basePosition = 0; baseStamp = now(); playing = false; }
     };
   }
-  return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, parseLrc, parseYrc,
-    attachTranslations, parseNcmLyrics, resolveIndex, lineProgress, wordProgress, lyricProgress, createClock };
+  return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
+    attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
+    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, createClock };
 });
+
+</script><script>
+(() => {
+  const SCENES = Object.freeze({
+    SEARCHING: "searching",
+    LYRICS: "lyrics",
+    SPECTRUM: "spectrum",
+    NO_PLAYBACK: "noPlayback",
+    MESSAGE: "message"
+  });
+
+  const LAYOUTS = Object.freeze({
+    SINGLE: "single",
+    TRANSLATION_PAIR: "translationPair"
+  });
+
+  const TRANSITIONS = Object.freeze({
+    PROGRESS_PATCH: "progressPatch",
+    REPLACE_IN_PLACE: "replaceInPlace",
+    SINGLE_ROLL: "singleRoll",
+    TRANSLATION_PAIR_ROLL: "translationPairRoll",
+    SEARCHING_TO_SPECTRUM_ROLL: "searchingToSpectrumRoll",
+    NO_PLAYBACK_TO_SPECTRUM_ROLL: "noPlaybackToSpectrumRoll",
+    LAYER_SWITCH: "layerSwitch",
+    IMMEDIATE: "immediate"
+  });
+
+  const TRANSITION_PRIMITIVES = Object.freeze({
+    PATCH: "patch",
+    REPLACE: "replace",
+    ROLL: "roll",
+    LAYER: "layer"
+  });
+
+  const TRANSITION_PRIMITIVE_BY_PLAN_KIND = Object.freeze({
+    [TRANSITIONS.PROGRESS_PATCH]: TRANSITION_PRIMITIVES.PATCH,
+    [TRANSITIONS.REPLACE_IN_PLACE]: TRANSITION_PRIMITIVES.REPLACE,
+    [TRANSITIONS.IMMEDIATE]: TRANSITION_PRIMITIVES.REPLACE,
+    [TRANSITIONS.SINGLE_ROLL]: TRANSITION_PRIMITIVES.ROLL,
+    [TRANSITIONS.TRANSLATION_PAIR_ROLL]: TRANSITION_PRIMITIVES.ROLL,
+    [TRANSITIONS.SEARCHING_TO_SPECTRUM_ROLL]: TRANSITION_PRIMITIVES.LAYER,
+    [TRANSITIONS.NO_PLAYBACK_TO_SPECTRUM_ROLL]: TRANSITION_PRIMITIVES.LAYER,
+    [TRANSITIONS.LAYER_SWITCH]: TRANSITION_PRIMITIVES.LAYER
+  });
+
+  const TRANSITION_HANDLER_NAMES = Object.freeze({
+    [TRANSITION_PRIMITIVES.PATCH]: "patchTransition",
+    [TRANSITION_PRIMITIVES.REPLACE]: "replaceTransition",
+    [TRANSITION_PRIMITIVES.ROLL]: "rollTransition",
+    [TRANSITION_PRIMITIVES.LAYER]: "layerTransition"
+  });
+
+  const TRANSLATION_PAIR_ROLL_DURATION_MS = 760;
+  const DEFAULT_DURATION_MS = Object.freeze({
+    singleRoll: 560,
+    translationPairRoll: TRANSLATION_PAIR_ROLL_DURATION_MS,
+    searchingSpectrumRoll: TRANSLATION_PAIR_ROLL_DURATION_MS,
+    layerSwitch: 300
+  });
+
+  function resolveTransitionPrimitive(planKind) {
+    if (typeof planKind !== "string") {
+      throw new TypeError("Transition plan kind must be a string.");
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(TRANSITION_PRIMITIVE_BY_PLAN_KIND, planKind)) {
+      throw new RangeError(`Unknown transition plan kind: ${planKind}`);
+    }
+
+    return TRANSITION_PRIMITIVE_BY_PLAN_KIND[planKind];
+  }
+
+  function requireTransitionHandler(handlers, primitive) {
+    const handlerName = TRANSITION_HANDLER_NAMES[primitive];
+    const handler = handlers[handlerName];
+    if (typeof handler !== "function") {
+      throw new TypeError(`Transition handler '${handlerName}' must be a function.`);
+    }
+
+    return handler;
+  }
+
+  class TransitionDispatcher {
+    constructor(handlers) {
+      if (!handlers || typeof handlers !== "object") {
+        throw new TypeError("Transition handlers must be an object.");
+      }
+
+      this.handlers = Object.freeze({
+        [TRANSITION_PRIMITIVES.PATCH]: requireTransitionHandler(handlers, TRANSITION_PRIMITIVES.PATCH),
+        [TRANSITION_PRIMITIVES.REPLACE]: requireTransitionHandler(handlers, TRANSITION_PRIMITIVES.REPLACE),
+        [TRANSITION_PRIMITIVES.ROLL]: requireTransitionHandler(handlers, TRANSITION_PRIMITIVES.ROLL),
+        [TRANSITION_PRIMITIVES.LAYER]: requireTransitionHandler(handlers, TRANSITION_PRIMITIVES.LAYER)
+      });
+    }
+
+    execute(plan, parameters) {
+      if (!plan || typeof plan !== "object") {
+        throw new TypeError("Transition plan must be an object.");
+      }
+
+      const primitive = resolveTransitionPrimitive(plan.kind);
+      const handler = this.handlers[primitive];
+      return handler(plan, parameters);
+    }
+  }
+
+  function normalizeScene(scene, frame) {
+    if (Object.values(SCENES).includes(scene)) {
+      return scene;
+    }
+
+    if (frame?.isPureMusic === true) {
+      return SCENES.SPECTRUM;
+    }
+
+    if (frame?.isSearching === true ||
+        frame?.current === "\u6b63\u5728\u68c0\u7d22\u6b4c\u8bcd..." ||
+        frame?.current === "\u6b63\u5728\u5339\u914d\u6b4c\u8bcd...") {
+      return SCENES.SEARCHING;
+    }
+
+    if (Number.isInteger(Number(frame?.currentLineIndex)) && Number(frame.currentLineIndex) >= 0) {
+      return SCENES.LYRICS;
+    }
+
+    return SCENES.MESSAGE;
+  }
+
+  function normalizeLayout(layout, frame) {
+    if (layout === LAYOUTS.TRANSLATION_PAIR || frame?.translationMode === true) {
+      return LAYOUTS.TRANSLATION_PAIR;
+    }
+
+    return LAYOUTS.SINGLE;
+  }
+
+  function normalizeFrame(frame = {}) {
+    const source = frame && typeof frame === "object" ? frame : {};
+    const currentLineIndex = Number(source.currentLineIndex);
+    const layout = normalizeLayout(source.layout, source);
+    const normalized = {
+      scene: normalizeScene(source.scene, source),
+      layout,
+      translationMode: layout === LAYOUTS.TRANSLATION_PAIR,
+      current: String(source.current ?? ""),
+      next: String(source.next ?? ""),
+      currentTranslation: String(source.currentTranslation ?? ""),
+      nextTranslation: String(source.nextTranslation ?? ""),
+      currentLineIndex: Number.isInteger(currentLineIndex) ? currentLineIndex : -1,
+      progress: clamp01(source.progress),
+      wordScanProgress: normalizeOptionalProgress(source.wordScanProgress),
+      trackId: String(source.trackId ?? ""),
+      isPlaying: source.isPlaying !== false,
+      isPureMusic: source.isPureMusic === true
+    };
+
+    return Object.freeze(normalized);
+  }
+
+  function normalizeOptionalProgress(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? clamp01(parsed) : null;
+  }
+
+  function clamp01(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(1, parsed));
+  }
+
+  function sameLyricsIdentity(current, target) {
+    return current.scene === SCENES.LYRICS &&
+      target.scene === SCENES.LYRICS &&
+      current.currentLineIndex >= 0 &&
+      current.currentLineIndex === target.currentLineIndex &&
+      current.trackId === target.trackId;
+  }
+
+  class PresentationPlanner {
+    plan(currentFrame, targetFrame, options = {}) {
+      const current = normalizeFrame(currentFrame);
+      const target = normalizeFrame(targetFrame);
+      const immediate = options.forceImmediate === true ||
+        options.animateTransition === false ||
+        options.reducedMotion === true;
+
+      if (immediate) {
+        return makePlan(TRANSITIONS.IMMEDIATE, current, target, 0);
+      }
+
+      if (target.scene === SCENES.SPECTRUM) {
+        if (current.scene === SCENES.SEARCHING) {
+          return makePlan(
+            TRANSITIONS.SEARCHING_TO_SPECTRUM_ROLL,
+            current,
+            target,
+            DEFAULT_DURATION_MS.searchingSpectrumRoll);
+        }
+
+        if (current.scene === SCENES.NO_PLAYBACK) {
+          return makePlan(
+            TRANSITIONS.NO_PLAYBACK_TO_SPECTRUM_ROLL,
+            current,
+            target,
+            DEFAULT_DURATION_MS.searchingSpectrumRoll);
+        }
+
+        return makePlan(TRANSITIONS.LAYER_SWITCH, current, target, DEFAULT_DURATION_MS.layerSwitch);
+      }
+
+      if (current.scene === SCENES.SPECTRUM) {
+        const durationMs = target.scene === SCENES.SEARCHING
+          ? DEFAULT_DURATION_MS.searchingSpectrumRoll
+          : DEFAULT_DURATION_MS.layerSwitch;
+        return makePlan(TRANSITIONS.LAYER_SWITCH, current, target, durationMs);
+      }
+
+      if (target.scene === SCENES.SEARCHING) {
+        if (current.scene === SCENES.SEARCHING) {
+          const trackChanged = current.trackId.length > 0 &&
+            target.trackId.length > 0 &&
+            current.trackId !== target.trackId;
+          if (trackChanged) {
+            return makePlan(
+              TRANSITIONS.SINGLE_ROLL,
+              current,
+              target,
+              DEFAULT_DURATION_MS.singleRoll);
+          }
+
+          const textChanged = current.current !== target.current ||
+            current.next !== target.next ||
+            current.currentTranslation !== target.currentTranslation ||
+            current.nextTranslation !== target.nextTranslation;
+          return makePlan(
+            textChanged ? TRANSITIONS.REPLACE_IN_PLACE : TRANSITIONS.PROGRESS_PATCH,
+            current,
+            target,
+            0);
+        }
+
+        return makePlan(
+          TRANSITIONS.SINGLE_ROLL,
+          current,
+          target,
+          DEFAULT_DURATION_MS.singleRoll);
+      }
+
+      if (sameLyricsIdentity(current, target)) {
+        const textChanged = current.current !== target.current ||
+          current.next !== target.next ||
+          current.currentTranslation !== target.currentTranslation ||
+          current.nextTranslation !== target.nextTranslation ||
+          current.layout !== target.layout;
+        return makePlan(
+          textChanged ? TRANSITIONS.REPLACE_IN_PLACE : TRANSITIONS.PROGRESS_PATCH,
+          current,
+          target,
+          0);
+      }
+
+      if (target.scene === SCENES.LYRICS && current.scene === SCENES.LYRICS) {
+        const isTranslationPair = target.layout === LAYOUTS.TRANSLATION_PAIR;
+        return makePlan(
+          isTranslationPair
+            ? TRANSITIONS.TRANSLATION_PAIR_ROLL
+            : TRANSITIONS.SINGLE_ROLL,
+          current,
+          target,
+          isTranslationPair
+            ? DEFAULT_DURATION_MS.translationPairRoll
+            : DEFAULT_DURATION_MS.singleRoll);
+      }
+
+      if (target.scene === SCENES.LYRICS &&
+          (current.scene === SCENES.SEARCHING || current.scene === SCENES.NO_PLAYBACK)) {
+        const isTranslationPair = target.layout === LAYOUTS.TRANSLATION_PAIR;
+        return makePlan(
+          isTranslationPair
+            ? TRANSITIONS.TRANSLATION_PAIR_ROLL
+            : TRANSITIONS.SINGLE_ROLL,
+          current,
+          target,
+          isTranslationPair
+            ? DEFAULT_DURATION_MS.translationPairRoll
+            : DEFAULT_DURATION_MS.singleRoll);
+      }
+
+      if (target.scene === SCENES.MESSAGE || target.scene === SCENES.NO_PLAYBACK) {
+        const textChanged = current.scene !== target.scene ||
+          current.current !== target.current ||
+          current.next !== target.next ||
+          current.currentTranslation !== target.currentTranslation ||
+          current.nextTranslation !== target.nextTranslation;
+        return makePlan(
+          textChanged ? TRANSITIONS.SINGLE_ROLL : TRANSITIONS.PROGRESS_PATCH,
+          current,
+          target,
+          textChanged ? DEFAULT_DURATION_MS.singleRoll : 0);
+      }
+
+      return makePlan(TRANSITIONS.REPLACE_IN_PLACE, current, target, 0);
+    }
+  }
+
+  function makePlan(kind, from, to, durationMs) {
+    return Object.freeze({
+      kind,
+      from,
+      to,
+      durationMs
+    });
+  }
+
+  class PresentationCoordinator {
+    constructor(planner = new PresentationPlanner()) {
+      this.planner = planner;
+      this.currentFrame = normalizeFrame();
+      this.activeTransition = null;
+      this.pendingFrame = null;
+      this.generation = 0;
+      this.fallbackTimer = 0;
+      this.animationFrameIds = new Set();
+      this.listenerCleanups = new Set();
+    }
+
+    get isTransitioning() {
+      return this.activeTransition !== null;
+    }
+
+    get activeGeneration() {
+      return this.activeTransition?.generation ?? this.generation;
+    }
+
+    plan(targetFrame, options = {}) {
+      return this.planner.plan(this.currentFrame, targetFrame, options);
+    }
+
+    setCurrentFrame(frame) {
+      this.currentFrame = normalizeFrame(frame);
+      return this.currentFrame;
+    }
+
+    queueLatest(frame, options = {}) {
+      this.pendingFrame = { frame: normalizeFrame(frame), options };
+      return this.pendingFrame;
+    }
+
+    takeLatest() {
+      const pending = this.pendingFrame;
+      this.pendingFrame = null;
+      return pending;
+    }
+
+    beginTransition(plan, callbacks = {}) {
+      this.cancelTransition();
+      const generation = ++this.generation;
+      const transition = {
+        generation,
+        plan,
+        callbacks,
+        finished: false
+      };
+      this.activeTransition = transition;
+
+      const context = {
+        generation,
+        plan,
+        isCurrent: () => this.activeTransition?.generation === generation,
+        requestFrame: callback => this.requestFrame(generation, callback),
+        scheduleFallback: (callback, delayMs) => this.scheduleFallback(generation, callback, delayMs),
+        listenTransitionEnd: (target, callback) => this.listenTransitionEnd(generation, target, callback),
+        finish: value => this.finishTransition(generation, value),
+        cancel: () => this.cancelTransition(generation)
+      };
+
+      if (typeof callbacks.start === "function") {
+        callbacks.start(context);
+      }
+
+      return context;
+    }
+
+    finishTransition(generation, value) {
+      const transition = this.activeTransition;
+      if (!transition || transition.generation !== generation || transition.finished) {
+        return false;
+      }
+
+      transition.finished = true;
+      this.clearTransitionResources();
+      this.activeTransition = null;
+      if (typeof transition.callbacks.complete === "function") {
+        transition.callbacks.complete(value);
+      }
+      return true;
+    }
+
+    cancelTransition(expectedGeneration = null) {
+      const transition = this.activeTransition;
+      if (expectedGeneration !== null && (!transition || transition.generation !== expectedGeneration)) {
+        return false;
+      }
+
+      if (transition && typeof transition.callbacks.cancel === "function") {
+        transition.callbacks.cancel();
+      }
+
+      this.generation++;
+      this.clearTransitionResources();
+      this.activeTransition = null;
+      return transition !== null;
+    }
+
+    requestFrame(generation, callback) {
+      const frameId = window.requestAnimationFrame(timestamp => {
+        this.animationFrameIds.delete(frameId);
+        if (this.activeTransition?.generation !== generation) {
+          return;
+        }
+
+        callback(timestamp);
+      });
+      this.animationFrameIds.add(frameId);
+      return frameId;
+    }
+
+    scheduleFallback(generation, callback, delayMs) {
+      this.clearFallbackTimer();
+      this.fallbackTimer = window.setTimeout(() => {
+        this.fallbackTimer = 0;
+        if (this.activeTransition?.generation !== generation) {
+          return;
+        }
+
+        callback();
+      }, Math.max(0, Number(delayMs) || 0));
+      return this.fallbackTimer;
+    }
+
+    listenTransitionEnd(generation, target, callback) {
+      if (!target || typeof target.addEventListener !== "function") {
+        return () => {};
+      }
+
+      const listener = event => {
+        if (this.activeTransition?.generation !== generation) {
+          return;
+        }
+
+        callback(event);
+      };
+      target.addEventListener("transitionend", listener);
+      const cleanup = () => target.removeEventListener("transitionend", listener);
+      this.listenerCleanups.add(cleanup);
+      return cleanup;
+    }
+
+    clearTransitionResources() {
+      this.clearFallbackTimer();
+      this.clearAnimationFrames();
+      this.clearTransitionListeners();
+    }
+
+    clearAnimationFrames() {
+      this.animationFrameIds.forEach(frameId => window.cancelAnimationFrame(frameId));
+      this.animationFrameIds.clear();
+    }
+
+    clearTransitionListeners() {
+      this.listenerCleanups.forEach(cleanup => cleanup());
+      this.listenerCleanups.clear();
+    }
+
+    clearFallbackTimer() {
+      if (!this.fallbackTimer) {
+        return;
+      }
+
+      window.clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = 0;
+    }
+  }
+
+  window.taskbarLyricsPresentation = {
+    SCENES,
+    LAYOUTS,
+    TRANSITIONS,
+    TRANSITION_PRIMITIVES,
+    DEFAULT_DURATION_MS,
+    clamp01,
+    normalizeFrame,
+    resolveTransitionPrimitive,
+    TransitionDispatcher,
+    PresentationPlanner,
+    PresentationCoordinator
+  };
+})();
 
 </script><script>
 (() => {'use strict';
@@ -215,21 +911,44 @@ const Core = window.FloatingCloudCore;
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
-  .fc-track{position:absolute;top:16px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
-  .fc-line{height:var(--fc-pitch);display:flex;flex-direction:column;align-items:stretch;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;line-height:1.22;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color)}
-  .fc-line-primary{font-size:var(--fc-font-size);font-weight:var(--fc-weight);color:var(--fc-color)}
-  .fc-line-secondary{font-size:var(--fc-next-size);font-weight:var(--fc-weight);color:var(--fc-next)}
-  .fc-line-paired .fc-text-box{font-size:var(--fc-font-size)}
-  .fc-line-secondary.fc-line-paired .fc-text-box{font-size:var(--fc-next-size)}
-  .fc-line-paired .fc-subline{font-size:var(--fc-next-size);color:var(--fc-next);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-top:3px}
+  .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-track.fc-no-anim,.fc-track.fc-no-anim .fc-line{transition:none!important;animation:none!important}
+  /* TaskbarLyrics v1.7.4 .line: the same restrained text-shadow on every
+     row, never an opaque drop-shadow/outline that changes apparent opacity. */
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;text-shadow:0 1px 2px rgba(0,0,0,.36);-webkit-text-stroke:0 transparent;transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
+  /* TBL original layer hierarchy: 90% primary × .98, 70% translated ×1,
+     60% next × .72. No additional row opacity for translations. */
+  .fc-line-primary{color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-translation{color:var(--fc-translation);opacity:1;transform:scale(var(--fc-secondary-scale))}
+  .fc-line.fc-pair-leaving{opacity:.16;transform:scale(.978)}
+  .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
+  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:.98;transform:scale(1)}
+  .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
+     inline spans, so keep FC's base and scan layers as real block boxes. */
+  .fc-text-base{display:block;white-space:nowrap}
+
+  /* TBL word-scanning: unplayed text is the 60%-alpha secondary color.
+     The 90%-alpha played segment is a separate clipped/masked layer.
+     Without scanning enabled, retain the normal 90%-alpha primary color. */
+  .fc-stage.fc-scan-enabled .fc-line-primary .fc-text-base{color:var(--fc-next)}
+  /* Keep the unplayed glyphs at their next-line color throughout promotion.
+     The clipped progress layer alone becomes bright; otherwise the whole row
+     flashes primary before draw() changes it to the scan-enabled base color. */
+  .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
+  .fc-text-highlight{display:block;position:absolute;inset:0;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
+  /* Playback-safe renderer: no per-frame mask-image or mask gradients.
+     The clipped scan layer is fully opaque and noticeably brighter than the
+     soft unplayed base. This avoids animated WebView2 GPU masks that may
+     contribute to some systems freezing when playback starts. */
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
   .fc-word-highlight{position:absolute;inset:0;white-space:pre;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-word-progress,0%)) 0 0)}
   .fc-stage.fc-no-motion .fc-text-highlight,.fc-stage.fc-no-motion .fc-word-highlight{transition:none}
-  .fc-stage:not(.fc-no-motion) .fc-text-highlight{transition:clip-path 90ms linear}
-  .fc-stage:not(.fc-no-motion) .fc-word-highlight{transition:clip-path 90ms linear}
+  /* rAF drives high-frequency YRC scanning; CSS transitions would restart every frame and lag. */
   .fc-group-heading{font-size:14px;font-weight:700;margin:20px 0 10px;color:#d9e6fc}
   .fc-mini{font-size:12px;opacity:.76;line-height:1.6}
   .fc-control select{max-width:100%;text-overflow:ellipsis}
@@ -249,166 +968,364 @@ const Core = window.FloatingCloudCore;
     if (text !== undefined) node.textContent = text;
     return node;
   }
+  // Two visually stable lyric rows with an offscreen third row for the incoming line.
+  // Adapted from TaskbarLyrics' separation of roll transitions and progress patches.
   class RollingView {
     constructor(stage) {
       this.stage = stage;
-      this.track = el('div', 'fc-track'); stage.appendChild(this.track);
-      this.rows = [0, 1, 2].map(() => el('div', 'fc-line'));
-      this.rows.forEach(r => this.track.append(r));
-      this.index = null; this.busy = false; this.pending = null;
-      this.timer = null; this.generation = 0; this.lines = [];
-      this.scanRows = [null, null, null]; this.lastPosition = 0;
+      this.track = el('div', 'fc-track'); stage.append(this.track);
+      this.rows = [0, 1, 2, 3].map(() => el('div', 'fc-line'));
+      this.rows.forEach(node => this.track.append(node));
+      this.scanRows = [null, null, null, null];
+      this.lines = []; this.index = null; this.settings = null;
+      this.busy = false; this.pending = null; this.pairMode=false;
+      this.timer = null; this.generation = 0; this.lastPosition = 0;
+      this.presentation = new window.taskbarLyricsPresentation.PresentationCoordinator();
+      this.renderTrackId = 0;
     }
     applySettings(s) {
       this.settings = s;
-      this.paired = Boolean(s.showTranslation && this.lines.some(l => l.translation));
+      this.pairMode = Boolean(s.showTranslation && this.lines.some(line=>String(line?.translation||'').trim()));
+      // Use fixed row boxes: font difference is only a visual scale.
+      this.pitch = Math.ceil(s.fontSize * 1.35 + s.lineGap);
       const v = this.stage.style;
-      const pitch = this.paired
-        ? Math.ceil(s.fontSize * 1.3 + s.nextFontSize * 1.35 + s.lineGap + 10)
-        : Math.ceil(Math.max(s.fontSize * 1.3, s.nextFontSize * 1.45) + s.lineGap);
-      this.pitch = pitch;
-      v.setProperty('--fc-pitch', pitch + 'px'); v.setProperty('--fc-font-size', s.fontSize + 'px');
-      v.setProperty('--fc-next-size', s.nextFontSize + 'px');
+      v.setProperty('--fc-pitch', this.pitch + 'px');
+      v.setProperty('--fc-font-size', s.fontSize + 'px');
+      v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
+      v.setProperty('--fc-roll-ms',(560/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
-      v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
-      v.setProperty('--fc-highlight', s.highlight); v.setProperty('--fc-stroke', s.strokeWidth + 'px');
-      v.setProperty('--fc-stroke-color', s.strokeColor); v.setProperty('--fc-shadow', s.shadow + 'px');
-      v.setProperty('--fc-align', s.align); v.fontFamily = s.font;
-      v.height = (pitch * (this.paired ? 1 : 2) + 16) + 'px';
+      const schemeLight=Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches);
+      const palette=Core.lyricPalette(s.foregroundMode,schemeLight);
+      v.setProperty('--fc-color', palette.primary);
+      v.setProperty('--fc-translation', palette.translation);
+      v.setProperty('--fc-next', palette.secondary);
+      v.setProperty('--fc-highlight', palette.scan);
+      // TBL's calibrated text-shadow keeps transparency consistent across
+      // untranslated, translated and unplayed segments. Legacy stroke/shadow
+      // settings remain in config for backward compatibility, not applied in
+      // the faithful TBL color mode.
+      v.setProperty('--fc-align', s.align);
+      v.fontFamily = s.font;
+      v.height = (this.pitch * 2) + 'px'; // exact viewport: row 3 is fully clipped
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
+      this.stage.classList.toggle('fc-scan-enabled',Boolean(s.enableWordScan));
       this.cancelTransition();
-      if (this.index !== null) { this.draw(); this.renderScan(0, this.lastPosition, this.scanRows[0]); }
+      if (this.index !== null) {
+        this.draw();
+        this.renderScan(Core.lineProgress(this.lines, this.index, this.lastPosition), this.lastPosition, this.scanRows[0]);
+      }
     }
     setLines(lines) {
       if (this.lines === lines) return;
-      this.lines = lines || []; this.cancelTransition(); this.index = null;
+      this.lines = Array.isArray(lines) ? lines : [];
+      ++this.renderTrackId;
+      this.cancelTransition(); this.index = null;
       if (this.settings) this.applySettings(this.settings);
     }
     cancelTransition() {
-      this.generation++; clearTimeout(this.timer); this.timer = null;
-      this.busy = false; this.pending = null; this.track.style.transition = 'none';
+      ++this.generation;
+      this.presentation.cancelTransition();
+      clearTimeout(this.timer); this.timer = null;
+      this.busy = false; this.pending = null;
+      this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
+      this.rows.forEach(r=>r.classList.remove('fc-leaving','fc-promoting','fc-pair-leaving'));
+    }
+    renderRow(rowIndex, lineIndex, translation=false) {
+      const r=this.rows[rowIndex],line=this.lines[lineIndex];
+      const primary=rowIndex===0 || (this.pairMode && rowIndex===2);
+      r.className='fc-line '+(translation?'fc-line-translation':
+        primary?'fc-line-primary':'fc-line-secondary');
+      r.replaceChildren();
+      const box=el('div','fc-text-box');
+      const content=translation
+        ? String(line?.translation||' ')
+        : String(line?.text|| (rowIndex===0?'暂无歌词':' '));
+      box.append(el('span','fc-text-base',content));
+      if(!translation)box.append(el('span','fc-text-highlight',content));
+      const words=line?.words||[];
+      const timed=!translation&&words.length&&words.map(w=>w.text).join('').trim()===content.trim();
+      this.scanRows[rowIndex]=translation?null:{mode:timed?'yrc':'lrc',node:box,lineIndex};
+      r.append(box);
     }
     draw() {
-      const i = Math.max(0, this.index ?? 0);
-      this.scanRows = [null, null, null];
-      this.rows.forEach((r, row) => {
-        const line = this.lines[i + row];
-        const primary = row === 0;
-        r.className = 'fc-line ' + (primary ? 'fc-line-primary' : 'fc-line-secondary') +
-          (this.paired ? ' fc-line-paired' : '');
-        r.replaceChildren();
-        const container = el('div', 'fc-text-box');
-        const content = line?.text || (primary ? '暂无歌词' : '');
-        const segments = [];
-        if (line?.words?.length && line.words.map(w => w.text).join('').trim() === content.trim()) {
-          // Actual YRC word timestamps; each token owns an independently clipped overlay.
-          for (const word of line.words) {
-            const wordNode = el('span', 'fc-word');
-            wordNode.append(el('span', 'fc-word-base', word.text));
-            const highlighted = el('span', 'fc-word-highlight', word.text);
-            wordNode.append(highlighted); container.append(wordNode);
-            segments.push({ word, node: wordNode });
-          }
-          this.scanRows[row] = { segments, mode: 'yrc' };
-        } else {
-          container.append(el('span', 'fc-text-base', content));
-          const highlighted = el('span', 'fc-text-highlight', content);
-          container.append(highlighted);
-          this.scanRows[row] = { node: container, mode: 'lrc' };
-        }
-        r.append(container);
-        if (this.paired) r.append(el('div', 'fc-subline', line?.translation || '　'));
-      });
+      const index=Math.max(0,this.index??0);
+      if(this.pairMode) {
+        this.renderRow(0,index);
+        this.renderRow(1,index,true);
+        this.renderRow(2,index+1);
+        this.renderRow(3,index+1,true);
+      } else {
+        for(let row=0;row<4;row++)this.renderRow(row,index+row);
+      }
     }
-    // Like TaskbarLyrics, frequent progress updates do not restart rolling transitions.
     renderScan(progress, timeMs, scan) {
       if (!scan) return;
-      if (scan.mode === 'yrc') {
-        for (const { word, node } of scan.segments) {
-          const value = this.settings.enableWordScan ? Core.wordProgress(word, timeMs) : 1;
-          node.style.setProperty('--fc-word-progress', `${(value * 100).toFixed(3)}%`);
-        }
-      } else {
-        const value = this.settings.enableWordScan ? progress : 1;
-        scan.node.style.setProperty('--fc-progress', `${(Math.max(0,Math.min(1,value)) * 100).toFixed(3)}%`);
-      }
+      const line=this.lines[scan.lineIndex];
+      const value=this.settings.enableWordScan
+        ? (scan.mode==='yrc' ? (Core.wordScanProgress(line,timeMs) ?? 0) : progress)
+        : 0;
+      scan.node.style.setProperty('--fc-progress',
+        (Math.max(0,Math.min(1,value))*100).toFixed(3) + '%');
+    }
+    promote(nextIndex, ticket) {
+      if (ticket !== this.generation) return;
+      clearTimeout(this.timer); this.timer = null;
+      // TBL's finalizeTransition: turn off *all* child transitions before
+      // resetting font scaling and moving the content origin. The previous
+      // implementation shifted live DOM rows, causing a white flash.
+      this.track.classList.add('fc-no-anim');
+      this.track.style.transition='none';
+      this.rows[0].style.opacity='.16';
+      this.rows[1].style.opacity='1';
+      void this.track.offsetHeight;
+      this.index=nextIndex;
+      this.track.style.transform='translate3d(0,0,0)';
+      this.draw();
+      this.rows[0].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[1].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[2].classList.remove('fc-leaving','fc-promoting','fc-incoming');
+      this.rows[3].classList.remove('fc-leaving','fc-promoting','fc-incoming','fc-pair-leaving');
+      this.rows.forEach(r=>{r.style.opacity='';r.style.transform='';});
+      this.renderScan(Core.lineProgress(this.lines,nextIndex,this.lastPosition),
+        this.lastPosition,this.scanRows[0]);
+      void this.track.offsetHeight;
+      this.track.classList.remove('fc-no-anim');
+      this.busy=false;
+      const pending=this.pending;this.pending=null;
+      if(pending)this.update(pending.index,pending.progress,pending.timeMs);
+    }
+    frameAt(index, progress, timeMs) {
+      const safe=Math.max(0,index);
+      return {
+        scene:'lyrics',layout:this.pairMode?'translationPair':'single',
+        trackId:String(this.renderTrackId),
+        currentLineIndex:safe,
+        current:this.lines[safe]?.text||'',
+        next:this.lines[safe+1]?.text||'',
+        currentTranslation:this.pairMode?this.lines[safe]?.translation||'':'',
+        nextTranslation:this.pairMode?this.lines[safe+1]?.translation||'':'',
+        progress,
+        wordScanProgress:Core.wordScanProgress(this.lines[safe],timeMs),
+        isPlaying:true
+      };
     }
     update(index, progress, timeMs) {
-      if (!this.settings?.enabled) { this.stage.style.opacity = '.28'; return; }
-      this.stage.style.opacity = '1'; this.lastPosition = timeMs;
-      // Before first timestamp do not highlight upcoming lyrics.
-      if (index < 0) { index = 0; progress = 0; }
-      if (this.index === null) { this.index = index; this.draw(); }
+      if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
+      this.stage.style.opacity='1'; this.lastPosition=timeMs;
+      if (index<0) {index=0;progress=0;}
+      const target=this.frameAt(index,progress,timeMs);
+      if (this.index === null) {
+        this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
       if (this.busy) {
-        this.pending = { index, progress, timeMs };
-        this.renderScan(progress, timeMs, this.scanRows[1]);
+        this.pending={index,progress,timeMs};
+        if(index===this.index+1) this.renderScan(progress,timeMs,this.scanRows[this.pairMode?2:1]);
         return;
       }
-      if (index === this.index) { this.renderScan(progress, timeMs, this.scanRows[0]); return; }
-      if (index !== this.index + 1 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        this.index = index; this.draw(); this.renderScan(progress, timeMs, this.scanRows[0]); return;
+      const reduced=Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+      const plan=this.presentation.plan(target,{reducedMotion:reduced});
+      if (index===this.index || plan.kind==='progressPatch') {
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
       }
-      this.busy = true;
-      const ticket = ++this.generation;
-      const duration = (this.paired ? 760 : 560) / this.settings.animationSpeed;
-      this.renderScan(progress, timeMs, this.scanRows[1]);
-      this.track.style.transition = `transform ${duration}ms cubic-bezier(0.22,0.72,0.24,1)`;
-      requestAnimationFrame(() => {
-        if (ticket === this.generation) this.track.style.transform = `translate3d(0,-${this.pitch}px,0)`;
+      if (index!==this.index+1 || reduced || !['singleRoll','translationPairRoll'].includes(plan.kind)) {
+        this.cancelTransition();this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
+      this.busy=true;
+      const ticket=++this.generation;
+      const duration=plan.durationMs/this.settings.animationSpeed;
+      this.renderScan(progress,timeMs,this.scanRows[this.pairMode?2:1]);
+      // TBL's coordinator owns the transitionend listener, rAF and fallback.
+      // A completed row becomes the current row without rebuilding its glyphs.
+      this.presentation.beginTransition(plan,{
+        start: ctx => {
+          this.track.style.transition='none';
+          this.track.style.transform='translate3d(0,0,0)';
+          this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
+          if(this.pairMode)this.rows[1].classList.add('fc-pair-leaving');
+          else this.rows[1].classList.add('fc-promoting');
+          // Incoming second line is visible through the moving viewport,
+          // exactly as in TBL; hiding it and revealing it only at the end
+          // caused the next-line flash.
+          this.rows[this.pairMode?3:2].classList.remove('fc-incoming');
+          // Commit the starting geometry before starting the transform.
+          void this.track.offsetHeight;
+          this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
+          const finish=()=>{if(ctx.isCurrent())ctx.finish();};
+          ctx.listenTransitionEnd(this.track,e=>{
+            if(e.target===this.track && e.propertyName==='transform')finish();
+          });
+          ctx.scheduleFallback(finish,duration+90);
+          ctx.requestFrame(()=>{
+            if(ctx.isCurrent() && ticket===this.generation)
+              this.track.style.transform='translate3d(0,-'+(this.pairMode?this.pitch*2:this.pitch)+'px,0)';
+          });
+        },
+        complete:()=>{
+          if(ticket!==this.generation)return;
+          // Commit the completed TBL presentation frame *before* replaying the
+          // latest queued update, or a fast consecutive line change can snap.
+          this.presentation.setCurrentFrame(target);
+          this.promote(index,ticket);
+        }
       });
-      this.timer = setTimeout(() => {
-        if (ticket !== this.generation) return;
-        this.index = index;
-        this.track.style.transition = 'none';
-        this.track.style.transform = 'translate3d(0,0,0)';
-        this.draw(); this.busy = false;
-        const queued = this.pending; this.pending = null;
-        const target = queued ?? { index, progress, timeMs };
-        if (target.index === this.index) this.renderScan(target.progress, target.timeMs, this.scanRows[0]);
-        else this.update(target.index, target.progress, target.timeMs);
-      }, duration + 28);
     }
     destroy() { this.cancelTransition(); this.stage.replaceChildren(); }
   }
 
 
 let settings=Core.normalizeSettings({}),lines=[],lastTrackKey='',clock=Core.createClock();
-let ready=false,view=null,lastUpdate=0,playStatus=false;
+let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,locked=false,pureMusic=false,searching=false,swapTimer=null;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
+const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
-document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>postAction(b.dataset.action)));
+function hideControls(){
+ clearTimeout(controlsTimer);controlsTimer=null;
+ root.classList.remove('controls-open','settings-open');
+ document.getElementById('mini-settings').classList.remove('open');
+ if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
+ postAction('settingsClosed');postAction('controlsClosed');
+}
+function openControls(){
+ if(locked)return;
+ root.classList.add('controls-open');postAction('controlsOpen');
+ clearTimeout(controlsTimer);
+ controlsTimer=setTimeout(hideControls,3500);
+}
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',ev=>{
+ ev.stopPropagation();postAction(b.dataset.action);
+ if(b.dataset.action==='lock'||b.dataset.action==='close')hideControls();
+ else openControls();
+}));
+document.getElementById('gear').addEventListener('click',ev=>{
+ ev.stopPropagation();
+ const active=document.getElementById('mini-settings').classList.toggle('open');
+ root.classList.toggle('settings-open',active);
+ postAction(active?'settingsOpen':'settingsClosed');openControls();
+});
+const spectrumEl=document.getElementById('spectrum');
+// Two independent controls: 32 column widths and 31 gaps. Scale both
+// proportionally only when their sum exceeds the available transparent HWND
+// width, to avoid overflow on a 300px lyric window.
+function applySpectrumGeometry(){
+ const barWidth=Math.max(1,Math.min(12,Number(settings.spectrumBarWidth)||3));
+ const gap=Math.max(0,Math.min(14,Number(settings.spectrumGap)||0));
+ const total=32*barWidth+31*gap;
+ const available=Math.max(1,window.innerWidth-40);
+ const fit=Math.min(1,available/total);
+ spectrumEl.style.setProperty('--fc-spectrum-bar-width',(barWidth*fit).toFixed(3)+'px');
+ spectrumEl.style.setProperty('--fc-spectrum-gap',(gap*fit).toFixed(3)+'px');
+}
+window.addEventListener('resize',applySpectrumGeometry);
+applySpectrumGeometry();
+const spectrumBars=Array.from({length:32},(_,i)=>{
+ const bar=document.createElement('span');bar.dataset.index=String(i);spectrumEl.append(bar);return bar;
+});
+let spectrumTargets=spectrumBars.map(()=>0),spectrumVisuals=spectrumBars.map(()=>0),lastSpectrumTime=0,spectrumRendered=false;
+function renderSpectrumFrame(now){
+ // A native lyric window used to write 32 DOM bar heights at 60fps even
+ // during ordinary songs. Only touch the spectrum DOM when it is visible.
+ if(!pureMusic){
+   if(spectrumRendered){
+     spectrumRendered=false;
+     spectrumTargets.fill(0);spectrumVisuals.fill(0);
+     spectrumBars.forEach(bar=>{bar.style.height='8px'});
+   }
+   lastSpectrumTime=0;
+   requestAnimationFrame(renderSpectrumFrame);
+   return;
+ }
+ // 30fps cap reduces WebView2 layout/compositor pressure while keeping
+ // spectrum smooth on lower-end Windows GPUs. Lyrics stay at native rAF rate.
+ if(lastSpectrumTime && now-lastSpectrumTime<30){
+   requestAnimationFrame(renderSpectrumFrame);
+   return;
+ }
+ spectrumRendered=true;
+ const elapsed=lastSpectrumTime?Math.max(.5,Math.min(2.4,(now-lastSpectrumTime)/16.67)):1;
+ lastSpectrumTime=now;
+ spectrumBars.forEach((bar,i)=>{
+   const target=playStatus?(spectrumTargets[i]||0):0;
+   const old=spectrumVisuals[i],rate=target>old?.70:.35;
+   const value=old+(target-old)*(1-Math.pow(1-rate,elapsed));
+   spectrumVisuals[i]=value;
+   bar.style.height=Math.round(8+value*62)+'px';
+ });
+ requestAnimationFrame(renderSpectrumFrame);
+}
+requestAnimationFrame(renderSpectrumFrame);
+function renderPlayState(){document.getElementById('play-pause').textContent=playStatus?'Ⅱ':'▶';}
 function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-line-pitch',Math.ceil(settings.fontSize*1.35+settings.lineGap)+'px');root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGeometry();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
-      lastTrackKey=String(p.trackKey||'');lines=Array.isArray(p.lines)?p.lines.slice(0,300):[];
-      view.setLines(lines);view.applySettings(settings);
+      const wasSearching=searching;
+      lastTrackKey=String(p.trackKey||'');
+      searching=Boolean(p.searching);
+      lines=searching
+        ? [
+            {time:0,duration:3600000,text:[p.title,p.artist].filter(Boolean).join(' — ')||'正在识别歌曲',words:[]},
+            {time:3600000,duration:3600000,text:'正在获取歌词…',words:[]}
+          ]
+        : Array.isArray(p.lines)?p.lines.slice(0,300):[];
+      pureMusic=Boolean(p.pureMusic)&&!searching;
+      root.classList.toggle('pure-music',pureMusic);
+      if(wasSearching && !searching && !pureMusic && lines.length) {
+        stage.style.transition='opacity 170ms ease';
+        stage.style.opacity='0.12';
+        clearTimeout(swapTimer);
+        swapTimer=setTimeout(()=>{
+          view.setLines(lines);view.applySettings(settings);
+          stage.style.opacity='1';
+        },170);
+      } else {
+        clearTimeout(swapTimer);
+        stage.style.opacity='1';
+        view.setLines(lines);view.applySettings(settings);
+      }
       setMessage(p.title||'');break;
     }
     case 'timeline':{
       const p=message.payload||{};
       if(Number.isFinite(p.positionMs))clock.anchor(p.positionMs, Boolean(p.playing));
-      break;
+      playStatus=Boolean(p.playing);renderPlayState();break;
     }
-    case 'locked':document.getElementById('toolbar').style.display=message.payload?'none':'flex';break;
+    case 'spectrum':
+      if(Array.isArray(message.payload)&&message.payload.length) {
+        spectrumTargets=spectrumBars.map((_,i)=>Math.max(0,Math.min(1,Number(message.payload[i]||0))));
+      } else spectrumTargets=spectrumBars.map(()=>0);
+      break;
+    case 'locked':locked=Boolean(message.payload);root.classList.toggle('is-locked',locked);if(locked)hideControls();break;
+    case 'interaction':
+      if(message.payload?.lyricClick&&!locked){
+        if(root.classList.contains('controls-open'))hideControls();else openControls();
+      }break;
   }
 }
 window.chrome?.webview?.addEventListener('message',ev=>receive(ev.data));
 const css=document.createElement("style");css.textContent=styleText;document.head.append(css);
 view=new RollingView(stage);view.applySettings(settings);
+window.matchMedia?.('(prefers-color-scheme: light)')?.addEventListener?.('change',()=>{
+ view.applySettings(settings);
+ root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);
+});
 // Browser-only mock: deliberate and explicit. No fake playback in production WebView2.
 if(!window.chrome?.webview){
  lines=Core.parseNcmLyrics({yrc:{lyric:'[0,3000](0,800,0)窗外(800,700,0)的风(1500,1000,0)吹过\n[3000,3000](0,900,0)平凡(900,900,0)时刻(1800,900,0)发光\n[6000,3000](0,800,0)把日子(800,900,0)写成(1700,950,0)一首歌'}}).lines;
- view.setLines(lines);view.applySettings(settings);clock.anchor(0,true);setMessage('浏览器演示模式');
+ view.setLines(lines);view.applySettings(settings);clock.anchor(0,true);playStatus=true;renderPlayState();setMessage('浏览器演示模式');
 }
 function raf(){
- const pos=clock.position(),index=Core.resolveIndex(lines,pos),progress=Core.lyricProgress(lines,index,pos);
+ const pos=searching?0:clock.position(),index=searching?0:Core.resolveIndex(lines,pos),progress=searching?0:Core.lyricProgress(lines,index,pos);
  view.update(index,progress,pos);
  requestAnimationFrame(raf);
 }
