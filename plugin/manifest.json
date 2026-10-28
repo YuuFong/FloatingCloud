@@ -3,7 +3,7 @@
   "manifest_version": 1,
   "name": "FloatingCloud",
   "slug": "floatingcloud-lite",
-  "version": "0.4.37",
+  "version": "0.4.38",
   "author": "FloatingCloud",
   "description": "桌面双行歌词、逐词高亮、翻译、副歌辉光与纯音乐频谱；使用 TaskbarLyrics 歌词源，并修复播放切歌卡顿。",
   "type": "extension",
@@ -21,6 +21,9 @@
       },
       {
         "file": "vendor/tbl-presentation.js"
+      },
+      {
+        "file": "update-check.js"
       },
       {
         "file": "main.js"
