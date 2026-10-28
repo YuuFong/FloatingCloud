@@ -23,7 +23,9 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #toolbar .fc-tools-right{justify-content:flex-start}
 #toolbar button{color:white;font:600 15px "Segoe UI Symbol","Microsoft YaHei",sans-serif;border:0;background:transparent;cursor:pointer;padding:5px 8px;border-radius:6px}
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
-#stage{width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}
+#root.width-adjusting #resize-guide{opacity:1}
+#stage{z-index:2;width:100%;position:absolute;top:92px;left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
 #stage .fc-track{top:0}
 #stage .fc-line{filter:drop-shadow(0 1px var(--fc-shadow) rgba(0,0,0,.85))}
 #state{position:absolute;top:5px;left:15px;color:#afbdd5;font-size:11px;opacity:0;pointer-events:none;white-space:nowrap;text-overflow:ellipsis;max-width:95%;overflow:hidden}
@@ -41,7 +43,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
  transition:background 280ms ease,opacity 260ms ease;opacity:.78}
 @media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
 </style></head><body>
-<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
+<div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings">统一字号 <button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><span>更多参数在 BetterNCM 插件设置中</span></div><div id="resize-guide" aria-hidden="true"></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
 <script>
 '''+core+'''
 </script><script>
@@ -111,7 +113,7 @@ function setMessage(msg){state.textContent=msg||''}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
-    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
+    case 'settings':settings=Core.normalizeSettings(message.payload);view.applySettings(settings);root.classList.toggle('width-adjusting',Boolean(message.payload?.widthGuide));root.style.setProperty('--fc-spectrum-color',Core.lyricPalette(settings.foregroundMode,Boolean(window.matchMedia?.('(prefers-color-scheme: light)')?.matches)).spectrum);applySpectrumGap();break;
     case 'lyrics':{
       const p=message.payload||{};
       if(p.trackKey===lastTrackKey&&lines.length&&p.lines===undefined)return;
