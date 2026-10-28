@@ -9,6 +9,8 @@ assert 'id="music"' not in html, 'song information button should be removed'
 assert 'grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)' in html, 'play button must be centered'
 assert 'transform:translate(-50%,9px)' in html, 'toolbar must animate upward from below'
 assert 'applySpectrumGap' in html and 'spectrumGap' in html, 'live adjustable spectrum spacing is missing'
+assert 'fc-line-translation{color:var(--fc-translation);opacity:1' in html, 'translation should use dedicated alpha hierarchy'
+assert 'lyricPalette(settings.foregroundMode' in html, 'theme-derived lyric palette missing'
 assert "length:32" in html, 'TaskbarLyrics 32-band renderer is missing'
 assert 'controlsOpen' in html and 'fontSmaller' in html
 assert 'id="spectrum"' in html and 'spectrumTargets' in html
