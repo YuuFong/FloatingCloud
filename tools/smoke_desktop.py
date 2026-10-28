@@ -8,7 +8,7 @@ assert 'id="play-pause"' in html and 'seekForward' in html
 assert 'controlsOpen' in html and 'fontSmaller' in html
 assert html.count('class="fc-stage"')==1
 scripts=re.findall(r'<script>([\s\S]*?)</script>',html)
-assert len(scripts)==2, f'expected 2 inline scripts, got {len(scripts)}'
+assert len(scripts)==3, f'expected 3 inline scripts (core, TBL, renderer), got {len(scripts)}'
 for script in scripts:
     with tempfile.NamedTemporaryFile('w',suffix='.js',encoding='utf8',delete=False) as f:
         f.write(script)
@@ -17,4 +17,4 @@ for script in scripts:
         subprocess.run(['node','--check',str(tmp)],check=True)
     finally:
         tmp.unlink(missing_ok=True)
-print('Desktop HTML and both inline JS scripts pass syntax checks')
+print('Desktop HTML and three inline scripts pass syntax checks')

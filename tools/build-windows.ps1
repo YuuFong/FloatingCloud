@@ -19,4 +19,4 @@ python "$root/tools/smoke_desktop.py"
 if($LASTEXITCODE -ne 0){throw "Desktop HTML smoke test failed"}
 Copy-Item "$root/build/native/Release/native.dll" "$root/plugin/native.dll" -Force
 python "$root/tools/pack_plugin.py"
-Write-Host 'Completed: FloatingCloud-v0.4.1.plugin'
+Write-Host 'Completed: FloatingCloud-v0.4.2.plugin'

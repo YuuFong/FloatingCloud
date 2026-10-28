@@ -7,8 +7,9 @@ if not (plugin/'native.dll').exists():
     raise SystemExit('Missing native.dll; build native host before producing installable .plugin. No JS-only stub will be shipped as a desktop host.')
 assert manifest['native_plugin']=='native.dll'
 assert (plugin/'desktop.html').is_file()
-name=root/'FloatingCloud-v0.4.1.plugin'
+name=root/'FloatingCloud-v0.4.2.plugin'
 with zipfile.ZipFile(name,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
-    for file in plugin.iterdir():
-        if file.is_file():z.write(file,file.name)
+    for file in sorted(plugin.rglob('*')):
+        if file.is_file() and file.name != 'native.dll.old':
+            z.write(file,file.relative_to(plugin).as_posix())
 print(f'packaged: {name} / {name.stat().st_size} bytes')

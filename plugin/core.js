@@ -165,10 +165,15 @@
     return out.filter(line => {
       if (!Number.isSafeInteger(line.time) || line.time < 0 || !line.text) return false;
       line.duration = Number.isFinite(line.end) ? Math.max(0, line.end-line.time) : 0;
-      line.words = line.words.filter(w => {
-        if (!Number.isSafeInteger(w.start) || w.start < 0 || !Number.isFinite(w.end)) return false;
-        w.duration = Math.max(0,w.end-w.start); return w.duration >= 0;
-      });
+      line.words = line.words.filter(w => Number.isSafeInteger(w.start) && w.start >= 0);
+      for (let i = 0; i < line.words.length; i++) {
+        const w=line.words[i], next=line.words[i+1];
+        // Lyricsfile permits word start_ms without end_ms. Infer the end from
+        // the following word start, or the containing line's end_ms.
+        const until=Number.isFinite(w.end) ? w.end :
+          (next?.start ?? (Number.isFinite(line.end) ? line.end : w.start));
+        w.duration=Math.max(0,until-w.start);
+      }
       if (line.words.map(w => w.text).join('').trim() !== line.text.trim()) line.words = [];
       return true;
     }).sort((a,b)=>a.time-b.time);

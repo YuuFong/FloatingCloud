@@ -126,3 +126,31 @@ test('TaskbarLyrics-style continuous word scan respects timed syllables',()=>{
  assert.ok(Math.abs(C.wordScanProgress(line,3000)-(8.5/11))<1e-5);
  assert.equal(C.wordScanProgress(line,4000),1);
 });
+
+test('Lyricsfile missing word end_ms derives next start or line end',()=>{
+  const yaml=[
+    'version: "1.0"',
+    'lines:',
+    '  - text: "This was a triumph."',
+    '    words:',
+    '      - text: "This "',
+    '        start_ms: 290',
+    '      - text: "was "',
+    '        start_ms: 536',
+    '      - text: "a "',
+    '        start_ms: 784',
+    '      - text: "triumph."',
+    '        start_ms: 923',
+    '    start_ms: 290',
+    '    end_ms: 3840',
+    'plain: |',
+    '  This was a triumph.'
+  ].join('\n');
+  const parsed=C.parseLyricsfile(yaml);
+  assert.equal(parsed.length,1);
+  assert.equal(parsed[0].words.length,4);
+  assert.equal(parsed[0].words[0].duration,246);
+  assert.equal(parsed[0].words[2].duration,139);
+  assert.equal(parsed[0].words[3].duration,2917);
+  assert.ok(C.wordScanProgress(parsed[0],1000)>0);
+});

@@ -117,9 +117,24 @@
           const response=await fetch('https://lrclib.net/api/get?'+args,{
             signal:ctrl.signal,headers:{'Lrclib-Client':'FloatingCloud/0.4.1 (https://github.com/YuuFong/FloatingCloud)'}});
           if(response.status===429) throw Error('LRCLIB 请求过于频繁，稍后再试');
-          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),{
-            title:this.title,artist:this.artist,durationMs:this.durationMs});
-          else if(response.status!==404) throw Error('LRCLIB HTTP '+response.status);
+          const meta={title:this.title,artist:this.artist,durationMs:this.durationMs};
+          if(response.status===200) result=Core.parseLrclibRecord(await response.json(),meta);
+          else if(response.status===404) {
+            const searchUrl='https://lrclib.net/api/search?'+new URLSearchParams({
+              track_name:this.title,artist_name:this.artist});
+            const searchResp=await fetch(searchUrl,{signal:ctrl.signal,headers:{
+              'Lrclib-Client':'FloatingCloud/0.4.2 (https://github.com/YuuFong/FloatingCloud)'}});
+            if(searchResp.ok) {
+              const candidates=await searchResp.json();
+              if(Array.isArray(candidates)) {
+                // Never accept title-only matches; prefer word-synced verified records.
+                const matches=candidates.slice(0,25)
+                  .map(r=>Core.parseLrclibRecord(r,meta)).filter(Boolean);
+                matches.sort((a,b)=>Number(b.kind==='lyricsfile')-Number(a.kind==='lyricsfile'));
+                result=matches[0]||null;
+              }
+            } else if(searchResp.status!==404)throw Error('LRCLIB search HTTP '+searchResp.status);
+          } else throw Error('LRCLIB HTTP '+response.status);
         }
         if(this.trackKey!==key || ctrl.signal.aborted) return;
         if(result?.lines?.length) {
@@ -199,6 +214,8 @@
       if (!this.enabled)return;
       this.call('settings',[JSON.stringify(s)]);
       this.call('width',[String(Math.round(s.width))]);
+      const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
+      this.call('height',[String(64+pitch*2+8)]);
     }
     tick() {
       if (!this.enabled)return;
@@ -245,10 +262,13 @@
   .fc-status{font-size:12px;opacity:.8;line-height:1.6;min-height:20px}
   .fc-demo-wrap{overflow:hidden;background:radial-gradient(ellipse at center,#222a3e,#10151e);border:1px solid #3c4556;border-radius:14px;padding:12px;margin-bottom:18px}
   .fc-stage{position:relative;overflow:hidden;margin:0 auto;width:100%;height:160px;--fc-pitch:63px;--fc-shadow:3px;--fc-color:#fff;--fc-next:#bdc3d1;--fc-highlight:#fff;--fc-stroke:1px;--fc-stroke-color:#262c35;--fc-align:center}
-  .fc-track{position:absolute;top:8px;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
-  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transition:color 200ms ease}
-  .fc-line-primary{color:var(--fc-color)}
-  .fc-line-secondary{color:var(--fc-next)}
+  .fc-track{position:absolute;top:0;left:0;width:100%;transform:translate3d(0,0,0);will-change:transform}
+  .fc-line{height:var(--fc-pitch);display:flex;align-items:center;justify-content:center;text-align:var(--fc-align);overflow:hidden;white-space:nowrap;font-size:var(--fc-font-size);font-weight:var(--fc-weight);line-height:1.25;filter:drop-shadow(0px 1px var(--fc-shadow) rgba(0,0,0,.8));-webkit-text-stroke:var(--fc-stroke) var(--fc-stroke-color);transform-origin:center center;transition:transform var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),opacity var(--fc-roll-ms,560ms) cubic-bezier(0.22,0.72,0.24,1),color 280ms ease}
+  .fc-line-primary{color:var(--fc-color);opacity:1;transform:scale(1)}
+  .fc-line-primary.fc-leaving{opacity:.16;transform:scale(.972)}
+  .fc-line-secondary{color:var(--fc-next);opacity:.72;transform:scale(var(--fc-secondary-scale))}
+  .fc-line-secondary.fc-promoting{color:var(--fc-color);opacity:1;transform:scale(1)}
+  .fc-line-secondary.fc-incoming{opacity:0}
   .fc-text-box{position:relative;display:block;max-width:100%;margin:0 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .fc-text-highlight{position:absolute;inset:0;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
@@ -287,6 +307,8 @@
       this.lines = []; this.index = null; this.settings = null;
       this.busy = false; this.pending = null;
       this.timer = null; this.generation = 0; this.lastPosition = 0;
+      this.presentation = new window.taskbarLyricsPresentation.PresentationCoordinator();
+      this.renderTrackId = 0;
     }
     applySettings(s) {
       this.settings = s;
@@ -295,6 +317,8 @@
       const v = this.stage.style;
       v.setProperty('--fc-pitch', this.pitch + 'px');
       v.setProperty('--fc-font-size', s.fontSize + 'px');
+      v.setProperty('--fc-secondary-scale',String(Math.max(12,s.fontSize-2)/s.fontSize));
+      v.setProperty('--fc-roll-ms',(560/s.animationSpeed)+'ms');
       v.setProperty('--fc-weight', String(s.fontWeight));
       v.setProperty('--fc-color', s.color); v.setProperty('--fc-next', s.nextColor);
       v.setProperty('--fc-highlight', s.highlight);
@@ -303,7 +327,7 @@
       v.setProperty('--fc-shadow', s.shadow + 'px');
       v.setProperty('--fc-align', s.align);
       v.fontFamily = s.font;
-      v.height = (this.pitch * 2 + 16) + 'px';
+      v.height = (this.pitch * 2) + 'px'; // exact viewport: row 3 is fully clipped
       v.maxWidth = s.width + 'px';
       this.stage.classList.toggle('fc-no-motion', !s.enableWordScan);
       this.cancelTransition();
@@ -315,15 +339,18 @@
     setLines(lines) {
       if (this.lines === lines) return;
       this.lines = Array.isArray(lines) ? lines : [];
+      ++this.renderTrackId;
       this.cancelTransition(); this.index = null;
       if (this.settings) this.applySettings(this.settings);
     }
     cancelTransition() {
       ++this.generation;
+      this.presentation.cancelTransition();
       clearTimeout(this.timer); this.timer = null;
       this.busy = false; this.pending = null;
       this.track.style.transition = 'none';
       this.track.style.transform = 'translate3d(0,0,0)';
+      this.rows.forEach(r=>r.classList.remove('fc-leaving','fc-promoting'));
     }
     renderRow(rowIndex, lineIndex) {
       const r = this.rows[rowIndex], line = this.lines[lineIndex];
@@ -368,37 +395,84 @@
       this.track.style.transform = 'translate3d(0,0,0)';
       this.index = nextIndex;
       this.renderRow(2, this.index + 2);
+      this.rows[1].classList.remove('fc-incoming');
       this.busy = false;
       const pending = this.pending; this.pending = null;
       if (pending) this.update(pending.index, pending.progress, pending.timeMs);
     }
+    frameAt(index, progress, timeMs) {
+      const safe=Math.max(0,index);
+      return {
+        scene:'lyrics',layout:'single',
+        trackId:String(this.renderTrackId),
+        currentLineIndex:safe,
+        current:this.lines[safe]?.text||'',
+        next:this.lines[safe+1]?.text||'',
+        progress,
+        wordScanProgress:Core.wordScanProgress(this.lines[safe],timeMs),
+        isPlaying:true
+      };
+    }
     update(index, progress, timeMs) {
-      if (!this.settings?.enabled) { this.stage.style.opacity = '.28'; return; }
-      this.stage.style.opacity = '1'; this.lastPosition = timeMs;
-      if (index < 0) { index = 0; progress = 0; }
-      if (this.index === null) { this.index = index; this.draw(); }
+      if (!this.settings?.enabled) { this.stage.style.opacity='.28'; return; }
+      this.stage.style.opacity='1'; this.lastPosition=timeMs;
+      if (index<0) {index=0;progress=0;}
+      const target=this.frameAt(index,progress,timeMs);
+      if (this.index === null) {
+        this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
       if (this.busy) {
-        this.pending = { index, progress, timeMs };
-        if (index === this.index + 1) this.renderScan(progress, timeMs, this.scanRows[1]);
+        this.pending={index,progress,timeMs};
+        if(index===this.index+1) this.renderScan(progress,timeMs,this.scanRows[1]);
         return;
       }
-      if (index === this.index) { this.renderScan(progress, timeMs, this.scanRows[0]); return; }
-      if (index !== this.index + 1 || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        this.cancelTransition(); this.index = index; this.draw();
-        this.renderScan(progress, timeMs, this.scanRows[0]); return;
+      const reduced=Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+      const plan=this.presentation.plan(target,{reducedMotion:reduced});
+      if (index===this.index || plan.kind==='progressPatch') {
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
       }
-      this.busy = true;
-      const ticket = ++this.generation;
-      const duration = 560 / this.settings.animationSpeed;
-      this.renderScan(progress, timeMs, this.scanRows[1]);
-      this.track.style.transition = 'none';
-      this.track.style.transform = 'translate3d(0,0,0)';
-      requestAnimationFrame(() => {
-        if (ticket !== this.generation) return;
-        this.track.style.transition = 'transform ' + duration + 'ms cubic-bezier(0.22,0.72,0.24,1)';
-        this.track.style.transform = 'translate3d(0,-' + this.pitch + 'px,0)';
+      if (index!==this.index+1 || reduced || plan.kind!=='singleRoll') {
+        this.cancelTransition();this.index=index;this.draw();
+        this.presentation.setCurrentFrame(target);
+        this.renderScan(progress,timeMs,this.scanRows[0]);return;
+      }
+      this.busy=true;
+      const ticket=++this.generation;
+      const duration=plan.durationMs/this.settings.animationSpeed;
+      this.renderScan(progress,timeMs,this.scanRows[1]);
+      // TBL's coordinator owns the transitionend listener, rAF and fallback.
+      // A completed row becomes the current row without rebuilding its glyphs.
+      this.presentation.beginTransition(plan,{
+        start: ctx => {
+          this.track.style.transition='none';
+          this.track.style.transform='translate3d(0,0,0)';
+          this.rows[0].classList.add('fc-leaving');
+          this.rows[1].classList.add('fc-promoting');
+          this.rows[2].classList.add('fc-incoming');
+          // Commit the starting geometry before starting the transform.
+          void this.track.offsetHeight;
+          this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
+          const finish=()=>{if(ctx.isCurrent())ctx.finish();};
+          ctx.listenTransitionEnd(this.track,e=>{
+            if(e.target===this.track && e.propertyName==='transform')finish();
+          });
+          ctx.scheduleFallback(finish,duration+90);
+          ctx.requestFrame(()=>{
+            if(ctx.isCurrent() && ticket===this.generation)
+              this.track.style.transform='translate3d(0,-'+this.pitch+'px,0)';
+          });
+        },
+        complete:()=>{
+          if(ticket!==this.generation)return;
+          // Commit the completed TBL presentation frame *before* replaying the
+          // latest queued update, or a fast consecutive line change can snap.
+          this.presentation.setCurrentFrame(target);
+          this.promote(index,ticket);
+        }
       });
-      this.timer = setTimeout(() => this.promote(index, ticket), duration + 36);
     }
     destroy() { this.cancelTransition(); this.stage.replaceChildren(); }
   }
@@ -406,7 +480,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.1（双行平滑滚动测试版）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.2（TaskbarLyrics 转场测试版）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
