@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.32-beta';
+  const VERSION = '0.4.33-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -502,13 +502,14 @@
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-color);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
-  /* TBL's 0.12em feather, painted through the glyphs without the animated
-     mask-image path that previously stalled some WebView2 hosts. */
+  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
+  .fc-text-feather{display:none;position:absolute;inset:32px;pointer-events:none;white-space:nowrap}
+  /* Keep the played glyphs fully bright; paint only a narrow soft tail past
+     the clip edge. The text paint path avoids animated mask-image on WebView2. */
   @supports (-webkit-background-clip:text){
-    .fc-text-highlight{--fc-feather:min(0.12em,var(--fc-progress,0%),calc(100% - var(--fc-progress,0%)));clip-path:none;color:transparent;-webkit-text-fill-color:transparent;background:linear-gradient(to right,var(--fc-color) 0,var(--fc-color) calc(var(--fc-progress,0%) - var(--fc-feather)),transparent calc(var(--fc-progress,0%) + var(--fc-feather)),transparent 100%);background-clip:text;-webkit-background-clip:text}
+    .fc-text-box.fc-feather-active .fc-text-feather{display:block;color:transparent;-webkit-text-fill-color:transparent;background:linear-gradient(to right,transparent 0,transparent var(--fc-progress,0%),var(--fc-highlight) var(--fc-progress,0%),transparent calc(var(--fc-progress,0%) + 0.12em),transparent 100%);background-clip:text;-webkit-background-clip:text}
   }
-  .fc-stage:not(.fc-scan-enabled) .fc-text-highlight{display:none}
+  .fc-stage:not(.fc-scan-enabled) .fc-text-highlight,.fc-stage:not(.fc-scan-enabled) .fc-text-feather{display:none}
   /* The word scan uses the same glyph overlay as the line scan. */
   .fc-word{display:inline-block;position:relative;white-space:pre;vertical-align:baseline}
   .fc-word-base{white-space:pre}
@@ -638,7 +639,7 @@
         ? String(line?.translation||' ')
         : String(line?.text|| (rowIndex===0?'暂无歌词':' '));
       box.append(el('span','fc-text-base',content));
-      if(!translation)box.append(el('span','fc-text-highlight',content));
+      if(!translation)box.append(el('span','fc-text-highlight',content),el('span','fc-text-feather',content));
       const words=line?.words||[];
       const timed=!translation&&Core.wordScanProgress(line,line?.time??0)!==null;
       this.scanRows[rowIndex]=translation?null:{mode:timed?'yrc':'lrc',node:box,lineIndex};
@@ -661,8 +662,9 @@
       const value=this.settings.enableWordScan
         ? (scan.mode==='yrc' ? (Core.wordScanProgress(line,timeMs) ?? 0) : progress)
         : 0;
-      scan.node.style.setProperty('--fc-progress',
-        (Math.max(0,Math.min(1,value))*100).toFixed(3) + '%');
+      const bounded=Math.max(0,Math.min(1,value));
+      scan.node.style.setProperty('--fc-progress',(bounded*100).toFixed(3) + '%');
+      scan.node.classList.toggle('fc-feather-active',bounded>0 && bounded<1);
     }
     setGlow(active) {
       if(this.glowActive===active)return;

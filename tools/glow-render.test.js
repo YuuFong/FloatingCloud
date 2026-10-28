@@ -100,4 +100,8 @@ test('timed words remain in word mode when punctuation is absent from tokens',()
   view.index=0;
   view.applySettings(Core.normalizeSettings({}));
   assert.equal(view.scanRows[0].mode,'yrc');
+  view.renderScan(0,500,view.scanRows[0]);
+  assert.equal(view.scanRows[0].node.classList.contains('fc-feather-active'),true);
+  view.renderScan(1,1000,view.scanRows[0]);
+  assert.equal(view.scanRows[0].node.classList.contains('fc-feather-active'),false);
 });
