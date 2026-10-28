@@ -212,6 +212,7 @@
     constructor() {
       this.enabled = false; this.locked = Boolean(plugin.getConfig('desktop-locked-v1', false));
       this.timer = null; this.sentLines = null; this.sentTrack = null;this.spectrumActive=false;this.sentPureMusic=null;this.sentSearching=null;this.spectrumCapture=false;
+      this.widthAdjusting=false;
       this.message = '尚未启用'; this.pingOk = false;
     }
     call(method, args = []) {
@@ -246,13 +247,6 @@
       if(saved?.x===position.x && saved?.y===position.y)return;
       plugin.setConfig('desktop-position-v1',position);
     }
-    restorePosition() {
-      const saved=plugin.getConfig('desktop-position-v1',null);
-      if(!saved || !Number.isInteger(saved.x) || !Number.isInteger(saved.y) ||
-        Math.abs(saved.x)>100000||Math.abs(saved.y)>100000)return;
-      // Native clamps stale positions to the nearest active monitor's work area.
-      this.call('setPosition',[saved.x+','+saved.y]);
-    }
     status() {
       if (!this.pingOk && !this.probe()) return 'native.dll 未加载：请安装经过 Windows 构建的 .plugin';
       const result = this.call('status');
@@ -261,8 +255,10 @@
     }
     enable() {
       if (!this.probe()) {this.message='native.dll 未加载';return false;}
-      // The native HWND is born at the persisted drag position, never briefly
-      // shown at the default bottom-of-screen location.
+      // Set dimensions BEFORE HWND creation: the saved x coordinate belongs
+      // to the saved window width, not to a temporary 740px default.
+      const pitch=Math.ceil(settings.fontSize*1.35+settings.lineGap);
+      this.call('setInitialSize',[Math.round(settings.width)+','+(92+pitch*2+8)]);
       const saved=plugin.getConfig('desktop-position-v1',null);
       if(saved && Number.isInteger(saved.x) && Number.isInteger(saved.y) &&
         Math.abs(saved.x)<=100000 && Math.abs(saved.y)<=100000)
@@ -270,7 +266,8 @@
       if (this.call('open') !== 'started') {this.message='Native 窗口创建失败';return false;}
       this.enabled = true;
       this.applySettings(settings);
-      this.restorePosition(); // width/height messages precede position restore
+      // No second setPosition after sizing: it used to undo the current
+      // centered resize by jumping to a stale startup coordinate.
       this.call('lock', [String(this.locked)]);
       this.call('show');
       this.sentTrack=null;this.sentLines=null;this.sentPureMusic=null;this.sentSearching=null;
@@ -292,7 +289,7 @@
     }
     applySettings(s) {
       if (!this.enabled)return;
-      this.call('settings',[JSON.stringify(s)]);
+      this.call('settings',[JSON.stringify({...s,widthGuide:this.widthAdjusting})]);
       this.call('width',[String(Math.round(s.width))]);
       const pitch=Math.ceil(s.fontSize*1.35+s.lineGap);
       this.call('height',[String(92+pitch*2+8)]);
@@ -610,7 +607,7 @@
   plugin.onConfig(() => {
     const panel = el('section', 'fc-panel');
     const style = el('style'); style.textContent = styleText; panel.append(style);
-    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.10 Beta（精确位置、TBL 色阶、频谱间距）'));
+    panel.append(el('h2', '', 'FloatingCloud · 歌词显示 v0.4.11 Beta（中心宽度调整与位置恢复）'));
     panel.append(el('div', 'fc-intro', '设置自动保存。点击「打开桌面浮窗」后由 Native/WebView2 显示透明歌词；不会拦截网易云原生桌面歌词。'));
     const demoWrap = el('div', 'fc-demo-wrap');
     const stage = el('div', 'fc-stage'); demoWrap.append(stage);
@@ -663,7 +660,7 @@
       ['shadow','阴影强度','range',0,16,1],['lineGap','行间距','range',0,40,1],
       ['spectrumGap','纯音乐频谱柱间距（px）','range',0,14,1],
       ['align','对齐方式','select',['left','center','right']],
-      ['width','显示宽度','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
+      ['width','显示宽度（向左右对称伸缩）','range',300,1200,10],['offsetMs','歌词时间偏移（ms）','range',-5000,5000,50],
       ['animationSpeed','动画速度倍率','range',.5,2,.1],['enableWordScan','启用真实逐词高亮（YRC / Lyricsfile）或 LRC 行扫描','checkbox']
     ];
     for (const [key, caption, type, a, b, step] of configs) {
@@ -686,8 +683,28 @@
       sync(); inputs.set(key, sync);
       input.addEventListener(type === 'range' || type === 'color' ? 'input' : 'change', () => {
         const val = type === 'checkbox' ? input.checked : (type === 'range' || key === 'fontWeight') ? Number(input.value) : input.value;
+        if(key==='width' && desktop)desktop.widthAdjusting=true;
         setSettings({ [key]: val });
       });
+      if(key==='width'){
+        let guideTimeout=null;
+        const finishWidthAdjustment=()=>{
+          clearTimeout(guideTimeout);guideTimeout=null;
+          if(desktop?.widthAdjusting){
+            desktop.widthAdjusting=false;
+            desktop.applySettings(settings);
+          }
+        };
+        input.addEventListener('pointerdown',()=>{
+          if(desktop){desktop.widthAdjusting=true;desktop.applySettings(settings);}
+        });
+        input.addEventListener('input',()=>{
+          clearTimeout(guideTimeout);
+          guideTimeout=setTimeout(finishWidthAdjustment,1100);
+        });
+        for(const event of ['pointerup','pointercancel','change','blur'])
+          input.addEventListener(event,finishWidthAdjustment);
+      }
       label.append(title, input, sub); grid.append(label);
     }
     panel.append(el('h3','fc-group-heading','歌词来源与离线使用'));
