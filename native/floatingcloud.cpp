@@ -43,7 +43,6 @@ constexpr UINT kShutdown = WM_APP + 107;
 constexpr UINT kHeight = WM_APP + 108;
 constexpr UINT kSetPosition = WM_APP + 109;
 constexpr UINT_PTR kHoverCheckTimer = 2401;
-constexpr int kUnlockButtonId = 2402;
 // The lyric surface handles mouse gestures at Win32 level; WebView2 receives toolbar clicks.
 
 HMODULE module = nullptr;
@@ -185,6 +184,44 @@ void setLock(bool lock) {
     SetWindowPos(window,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_FRAMECHANGED);
     sendToWeb("locked",lock?"true":"false");
 }
+// A separate non-transparent owned popup owns its mouse events directly.
+// A WS_POPUP 'BUTTON' reporting BN_CLICKED to its owner is unreliable on some
+// Windows builds; the custom popup avoids depending on WM_COMMAND propagation.
+LRESULT CALLBACK unlockProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
+    switch(msg) {
+        case WM_MOUSEACTIVATE:return MA_NOACTIVATE;
+        case WM_NCHITTEST:return HTCLIENT;
+        case WM_LBUTTONDOWN:SetCapture(h);return 0;
+        case WM_LBUTTONUP: {
+            if(GetCapture()==h)ReleaseCapture();
+            POINT cursor{};
+            RECT area{};
+            if(GetCursorPos(&cursor) && GetWindowRect(h,&area) &&
+               PtInRect(&area,cursor) && locked) {
+                setLock(false);
+                requestedAction.store(10); // also update persisted JS setting
+            }
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps{};
+            HDC dc=BeginPaint(h,&ps);
+            RECT rect{};
+            GetClientRect(h,&rect);
+            HBRUSH fill=CreateSolidBrush(RGB(30,39,56));
+            FillRect(dc,&rect,fill);
+            DeleteObject(fill);
+            SetBkMode(dc,TRANSPARENT);
+            SetTextColor(dc,RGB(240,245,255));
+            auto old=SelectObject(dc,GetStockObject(DEFAULT_GUI_FONT));
+            DrawTextW(dc,L"解除锁定",-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE);
+            SelectObject(dc,old);
+            EndPaint(h,&ps);
+            return 0;
+        }
+    }
+    return DefWindowProcW(h,msg,wp,lp);
+}
 void closeWeb() {
     webReady = false;
     if (controller) controller->Close();
@@ -304,13 +341,6 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_TIMER:
             if(wp==kHoverCheckTimer){checkLockedHover();return 0;}
             break;
-        case WM_COMMAND:
-            if(LOWORD(wp)==kUnlockButtonId && HIWORD(wp)==BN_CLICKED){
-                setLock(false);
-                requestedAction.store(10);
-                return 0;
-            }
-            break;
         case WM_NCHITTEST: {
             if(locked) return HTTRANSPARENT;
             POINT p{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(h,&p);
@@ -421,11 +451,18 @@ DWORD WINAPI windowThread(LPVOID) {
         (screenW-width)/2,screenH*3/4,width,height,nullptr,nullptr,module,nullptr);
     if(!h){state.store(3);SetEvent(createdEvent);CoUninitialize();return 1;}
     hwnd.store(h);
-    // Separate popup: the lyric window remains fully click-through when locked.
-    // An owned top-level BUTTON can receive clicks while the transparent lyrics cannot.
+    // The unlock control is a separately painted, click-capable popup.
+    // It is not WS_EX_TRANSPARENT, even when its owning lyric HWND is locked.
+    const wchar_t* popupClass=L"FloatingCloud_Unlock_Popup_048";
+    WNDCLASSEXW popup{sizeof(popup)};
+    popup.hInstance=module;
+    popup.lpfnWndProc=unlockProc;
+    popup.lpszClassName=popupClass;
+    popup.hCursor=LoadCursor(nullptr,IDC_HAND);
+    RegisterClassExW(&popup);
     unlockButton=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,
-        L"BUTTON",L"解除锁定",WS_POPUP|BS_PUSHBUTTON,
-        0,0,110,32,h,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUnlockButtonId)),module,nullptr);
+        popupClass,L"解除锁定",WS_POPUP,
+        0,0,110,32,h,nullptr,module,nullptr);
     SetTimer(h,kHoverCheckTimer,80,nullptr);
     SetEvent(createdEvent);
     initWebView();
