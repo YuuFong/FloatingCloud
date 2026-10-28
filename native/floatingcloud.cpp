@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <windowsx.h>
+#include "spectrum.h"
 #include <d3d11.h>
 #include <dcomp.h>
 #include <dxgi.h>
@@ -280,7 +281,7 @@ LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM wp,LPARAM lp) {
         case WM_SIZE:sizeController();return 0;
         case kFrame: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
-            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);}return 0;
+            if(payload) {latestFrame=*payload;sendToWeb("timeline",latestFrame);if(fc_spectrum::available())sendToWeb("spectrum",fc_spectrum::readJson());}return 0;
         }
         case kLyrics: {
             std::unique_ptr<std::string> payload(reinterpret_cast<std::string*>(lp));
@@ -354,6 +355,7 @@ bool startHost() {
     return true;
 }
 void stopHost() {
+    fc_spectrum::shutdown();
     std::lock_guard<std::mutex> guard(gate);
     if(!worker) return;
     HWND h=hwnd.load();
@@ -409,6 +411,11 @@ static const char* setHeight(void** a){
     return h&&a&&a[0]&&PostMessageW(h,fc::kHeight,
         static_cast<WPARAM>(std::atoi(static_cast<char*>(a[0]))),0)?"ok":"unavailable";
 }
+static const char* spectrumEnabled(void** a) {
+    if(!a||!a[0])return "error";
+    fc_spectrum::enable(std::strcmp(static_cast<char*>(a[0]),"true")==0);
+    return fc_spectrum::available()?"available":"starting-or-disabled";
+}
 static const char* poll(void**){
     switch(fc::requestedAction.exchange(0)){
         case 1:return "previous";case 2:return "toggle";case 3:return "next";
@@ -435,6 +442,7 @@ extern "C" __declspec(dllexport) int BetterNCMPluginMain(const PluginAPI* api){
     api->addNativeAPI(stringArg,1,"floatingcloud.lock",setLock);
     api->addNativeAPI(stringArg,1,"floatingcloud.width",setWidth);
     api->addNativeAPI(stringArg,1,"floatingcloud.height",setHeight);
+    api->addNativeAPI(stringArg,1,"floatingcloud.spectrumEnabled",spectrumEnabled);
     api->addNativeAPI(nullptr,0,"floatingcloud.poll",poll);
     api->addNativeAPI(nullptr,0,"floatingcloud.shutdown",shutdown);
     return 0;
