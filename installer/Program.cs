@@ -401,21 +401,39 @@ internal sealed partial class SetupForm : Form
 
     private void ShowThirdPartyLicenses()
     {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
-        if (stream is null) { OpenUrl("https://github.com/apoint123/inflink-rs/blob/main/LICENSE"); return; }
-        using var reader = new StreamReader(stream);
+        var assembly = Assembly.GetExecutingAssembly();
+        var notice = new System.Text.StringBuilder();
+        foreach (var (resource, title, source) in new[] {
+            ("FloatingCloud.Setup.BetterNcmLicense", "BetterNCM (GPL-3.0)",
+                "https://github.com/std-microblock/chromatic/tree/1.3.4"),
+            ("FloatingCloud.Setup.InfLinkLicense", "InfLink-rs (GPL-3.0-only)",
+                "https://github.com/apoint123/inflink-rs")
+        })
+        {
+            notice.AppendLine(title).AppendLine("Source: " + source).AppendLine();
+            using var stream = assembly.GetManifestResourceStream(resource);
+            if (stream is null)
+            {
+                notice.AppendLine("未包含许可证文本，请访问上方官方仓库。");
+            }
+            else
+            {
+                using var reader = new StreamReader(stream);
+                notice.AppendLine(reader.ReadToEnd());
+            }
+            notice.AppendLine().AppendLine(new string('=', 65)).AppendLine();
+        }
         using var dialog = new Form
         {
-            Text = "第三方组件许可 · InfLink-rs (GPL-3.0-only)",
-            Size = new Size(690, 560), StartPosition = FormStartPosition.CenterParent
+            Text = "第三方组件许可 · BetterNCM / InfLink-rs",
+            Size = new Size(740, 590), StartPosition = FormStartPosition.CenterParent
         };
-        var licenseText = new TextBox
+        dialog.Controls.Add(new TextBox
         {
             Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
             ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 10),
-            Text = "InfLink-rs by apoint123\\r\\nSource: https://github.com/apoint123/inflink-rs\\r\\n\\r\\n" + reader.ReadToEnd()
-        };
-        dialog.Controls.Add(licenseText);
+            Text = notice.ToString()
+        });
         dialog.ShowDialog(this);
     }
 
