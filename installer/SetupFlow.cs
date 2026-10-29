@@ -87,8 +87,47 @@ internal sealed partial class SetupForm
             throw new InvalidOperationException("检测到旧版 BetterNCM 的 cloudmusicn.exe，请先使用官方工具迁移旧版。");
     }
 
+    private async Task EnsureNcmClosedAsync()
+    {
+        static Process[] GetNcmProcesses() =>
+            Process.GetProcessesByName("cloudmusic")
+                .Concat(Process.GetProcessesByName("cloudmusicn")).ToArray();
+
+        var processes = GetNcmProcesses();
+        if (processes.Length == 0) return;
+        if (MessageBox.Show(this,
+                "网易云音乐正在运行。安装需要先关闭网易云（可能中断当前歌曲播放）。是否自动关闭？",
+                "准备安装", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            throw new InvalidOperationException("用户取消关闭网易云，安装未开始。");
+        SetStatus("正在安全关闭网易云音乐…");
+        foreach (var process in processes)
+        {
+            try { if (!process.HasExited) process.CloseMainWindow(); }
+            catch (InvalidOperationException) { }
+            finally { process.Dispose(); }
+        }
+        for (var attempt = 0; attempt < 30 && GetNcmProcesses().Length != 0; ++attempt)
+            await Task.Delay(200);
+        processes = GetNcmProcesses();
+        if (processes.Length == 0) return;
+        if (MessageBox.Show(this,
+                "网易云仍在后台运行。是否强制结束这些进程，然后继续安装？",
+                "结束后台进程", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            throw new InvalidOperationException("网易云尚未关闭，安装未开始。");
+        foreach (var process in processes)
+        {
+            try { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+            finally { process.Dispose(); }
+        }
+        for (var attempt = 0; attempt < 30 && GetNcmProcesses().Length != 0; ++attempt)
+            await Task.Delay(200);
+        if (GetNcmProcesses().Length != 0)
+            throw new InvalidOperationException("无法结束网易云进程。请关闭后台任务后再安装。");
+    }
+
     private async Task CompleteSetupAsync()
     {
+        await EnsureNcmClosedAsync();
         VerifyNcmExe(_cloudMusic);
         var infLinkReady = Assembly.GetExecutingAssembly().GetManifestResourceInfo(InfLinkResource) is not null;
         if (!infLinkReady)
