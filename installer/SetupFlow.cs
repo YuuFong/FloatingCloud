@@ -296,7 +296,7 @@ internal sealed partial class SetupForm
                 {
                     FileName = Environment.ProcessPath ??
                         throw new InvalidOperationException("无法定位当前安装器路径。"),
-                    Arguments = $"--install-betterncm \\"{temp}\\" \\"{ncmExe}\\"",
+                    Arguments = $"--install-betterncm \"{temp}\" \"{ncmExe}\"",
                     Verb = "runas",
                     UseShellExecute = true
                 }) ?? throw new InvalidOperationException("无法启动管理员权限安装步骤");
