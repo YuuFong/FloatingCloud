@@ -267,7 +267,7 @@ internal sealed partial class SetupForm : Form
         {
             await using (var target = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 await source.CopyToAsync(target);
-            InstallPlugin(temp);
+            InstallPlugin(temp, showCompletion);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -334,7 +334,7 @@ internal sealed partial class SetupForm : Form
         return Task.CompletedTask;
     }
 
-    private void InstallPlugin(string file)
+    private void InstallPlugin(string file, bool showCompletion = true)
     {
         if (new FileInfo(file).Length is <= 0 or > MaxPackageBytes)
             throw new InvalidDataException("插件包为空或超过大小限制。");
