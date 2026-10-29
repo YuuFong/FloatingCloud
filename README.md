@@ -2,11 +2,10 @@
 
 # FloatingCloud ☁️
 
-### 把日常写成一首歌
-*Turning ordinary days into a song.*
+![FloatingCloud 项目展示横幅](docs/assets/floatingcloud-banner.svg)
 
 适用于 Windows 的网易云音乐透明桌面歌词插件。  
-让歌词融入桌面，而不是挡住桌面。
+**让歌词融入桌面，而不是挡住桌面。**
 
 [**下载最新正式版**](https://github.com/YuuFong/FloatingCloud/releases/latest) · [**一键安装**](#快速开始) · [**功能介绍**](#功能亮点) · [**问题反馈**](https://github.com/YuuFong/FloatingCloud/issues)
 
