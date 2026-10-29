@@ -354,7 +354,7 @@ internal sealed class SetupForm : Form
             .Select(text => Version.TryParse(text, out var parsed) ? parsed : null)
             .Where(v => v is not null)
             .ToList();
-        if (existingVersions.Any(v => v! > incoming) &&
+        if (existingVersions.Any(v => v!.CompareTo(incoming) > 0) &&
             MessageBox.Show(this, $"已安装的 FloatingCloud 版本高于 v{version}。是否仍要降级？",
                 "确认降级", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
