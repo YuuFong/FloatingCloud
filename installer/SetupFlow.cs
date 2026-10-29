@@ -112,7 +112,8 @@ internal sealed partial class SetupForm
         var inflinkResult = await InstallBundledInflinkAsync();
         _progress.Value = 78;
         SetStatus("步骤 3/3 · 正在安装 FloatingCloud…");
-        await InstallBundledAsync();
+        Directory.CreateDirectory(_profile);
+        await InstallBundledAsync(showCompletion: false);
         _progress.Value = 100;
         RefreshEnvironment();
         SetStatus("已完成：BetterNCM、InfLink-rs、FloatingCloud。重启网易云音乐即可使用。");
