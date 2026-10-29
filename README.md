@@ -15,7 +15,7 @@
 
 ## 认识 FloatingCloud
 
-**FloatingCloud** 基于 [BetterNCM](https://github.com/std-microblock/BetterNCM) 与 [InfLink-rs](https://github.com/apoint123/inflink-rs)，通过独立的 Native / WebView2 透明窗口显示歌词。
+**FloatingCloud** 基于 [BetterNCM](https://github.com/std-microblock/chromatic) 与 [InfLink-rs](https://github.com/apoint123/inflink-rs)，通过独立的 Native / WebView2 透明窗口显示歌词。
 
 它不拦截网易云音乐自带的桌面歌词，而是提供一套可调节外观、行为与歌词来源的独立悬浮窗。无论是中文、日文或英文歌曲，还是没有歌词的纯音乐，都能有适合的桌面呈现方式。
 
