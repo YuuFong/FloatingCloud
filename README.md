@@ -31,9 +31,19 @@
 
 ## 效果展示
 
-FloatingCloud 支持中文、日文、英文歌词与双行译文，还可以在识别到纯音乐时显示动态频谱。桌面效果采用透明浮窗，可与壁纸自然融合。
+真实运行截图 · FloatingCloud v0.4.38。双行歌词、翻译与纯音乐频谱都在独立透明窗口中呈现，可以自然融入桌面壁纸。
 
-> 本项目的真实运行截图正在整理为仓库展示素材。欢迎参阅下方的安装说明和设置介绍。
+![FloatingCloud 真实桌面效果：多语言双行歌词、译文与纯音乐频谱](docs/assets/screenshots/lyrics-showcase.webp)
+
+<sub>中文 / 日文 / 英文歌词与译文 · 纯音乐动态频谱</sub>
+
+### 细节由你决定
+
+字体、字号、颜色、对齐、行间距、逐词高亮、滚动速度、频谱、辉光和歌词来源都可以在设置页调整，大多数设置自动保存。
+
+| 歌词外观与排版 | 滚动、频谱、辉光与歌词来源 |
+| :---: | :---: |
+| <img src="docs/assets/screenshots/settings-appearance.webp" alt="FloatingCloud 歌词外观设置与实时预览" width="100%"> | <img src="docs/assets/screenshots/settings-effects.webp" alt="FloatingCloud 滚动同步、纯音乐频谱、副歌辉光与歌词来源设置" width="100%"> |
 
 ## 快速开始
 
@@ -44,6 +54,12 @@ FloatingCloud 支持中文、日文、英文歌词与双行译文，还可以在
 安装器将自动识别网易云音乐路径，并按需部署 **BetterNCM → InfLink-rs → FloatingCloud**。三个组件的程序文件随安装器提供；通常不需要自行安装 BetterNCM 或手动寻找 InfLink-rs。安装时可能弹出 Windows 管理员权限确认。
 
 安装完成后启动网易云音乐，在 BetterNCM 的 FloatingCloud 设置中打开桌面浮窗即可。安装器还支持本地导入、版本更新、备份旧版与自定义目录。
+
+<p align="center">
+  <img src="docs/assets/screenshots/installer.webp" alt="FloatingCloud 一键安装器：自动识别网易云音乐、BetterNCM、InfLink-rs 和 FloatingCloud 的安装状态" width="440">
+</p>
+
+<p align="center"><sub>一键安装器 · 自动识别依赖与安装路径</sub></p>
 
 ### 方式二：手动安装
 
