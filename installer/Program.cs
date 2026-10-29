@@ -10,14 +10,24 @@ namespace FloatingCloud.Setup;
 internal static class Program
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--self-test")
+        {
+            Environment.ExitCode = SetupForm.RunSelfTest();
+            return;
+        }
+        if (args.Length == 3 && args[0] == "--install-betterncm")
+        {
+            Environment.ExitCode = SetupForm.RunElevatedBetterNcmInstall(args[1], args[2]) ? 0 : 1;
+            return;
+        }
         ApplicationConfiguration.Initialize();
         Application.Run(new SetupForm());
     }
 }
 
-internal sealed class SetupForm : Form
+internal sealed partial class SetupForm : Form
 {
     private const string OfficialBetterNcm = "https://github.com/std-microblock/BetterNCM-Installer/releases/latest";
     private const string ReleaseApi = "https://api.github.com/repos/YuuFong/FloatingCloud/releases/latest";
@@ -28,26 +38,24 @@ internal sealed class SetupForm : Form
     private readonly Label _better = NewLabel(143);
     private readonly Label _profileLabel = NewLabel(183);
     private readonly Label _installed = NewLabel(223);
-    private readonly Label _status = NewLabel(391);
+    private readonly Label _status = NewLabel(452);
     private const string BundledResource = "FloatingCloud.Setup.BundledPlugin";
-    private readonly Button _install = NewButton("一键离线安装", 22, 272, 142);
-    private readonly Button _updateOnline = NewButton("在线检查更新", 186, 272, 142);
-    private readonly Button _local = NewButton("本地安装 .plugin", 350, 272, 142);
-    private readonly Button _official = NewButton("安装 BetterNCM", 22, 328, 148);
-    private readonly Button _chooseNcm = NewButton("选择网易云路径", 180, 328, 148);
-    private readonly Button _chooseProfile = NewButton("选择插件数据目录", 338, 328, 150);
-    private readonly Button _refresh = NewButton("重新检测", 378, 428, 110);
+    private readonly Button _install = NewButton("一键安装 / 修复", 22, 312, 142);
+    private readonly Button _updateOnline = NewButton("在线更新 FC", 186, 312, 142);
+    private readonly Button _local = NewButton("本地导入 FC", 350, 312, 142);
+    private readonly Button _official = NewButton("BetterNCM 官方备用", 22, 365, 148);
+    private readonly Button _chooseNcm = NewButton("选择网易云路径", 180, 365, 148);
+    private readonly Button _chooseProfile = NewButton("选择插件数据目录", 338, 365, 150);
+    private readonly Button _refresh = NewButton("重新检测", 378, 506, 110);
+    private readonly Button _licenses = NewButton("第三方许可", 24, 506, 130);
     private string? _cloudMusic;
-    private string _profile = Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.User)
-        ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.Machine)
-        ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE")
-        ?? @"C:\betterncm";
+    private string _profile = DetectBetterNcmProfile();
     private bool _busy;
 
     internal SetupForm()
     {
-        Text = "FloatingCloud · 安装与更新";
-        ClientSize = new Size(515, 468);
+        Text = "FloatingCloud · 一键安装";
+        ClientSize = new Size(515, 555);
         MinimumSize = MaximumSize = Size;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -63,29 +71,31 @@ internal sealed class SetupForm : Form
             Font = new Font("Microsoft YaHei UI", 20F, FontStyle.Bold)
         });
         Controls.Add(new Label {
-            Text = "透明桌面歌词 · Windows x64 · 离线部署 / 在线更新",
+            Text = "自动安装 BetterNCM + InfLink-rs + FloatingCloud · Windows x64",
             Left = 24, Top = 64, Width = 468, Height = 27,
             ForeColor = Color.FromArgb(103, 116, 145)
         });
-        foreach (var label in new[] { _ncm, _better, _profileLabel, _installed, _status })
+        foreach (var label in new[] { _ncm, _better, _profileLabel, _installed, _infLink, _status })
             Controls.Add(label);
 
         _install.BackColor = Color.FromArgb(57, 98, 210);
         _install.ForeColor = Color.White;
         _install.FlatStyle = FlatStyle.Flat;
         _install.FlatAppearance.BorderSize = 0;
-        _install.Click += async (_, _) => await BusyAsync(InstallBundledAsync);
+        _install.Click += async (_, _) => await BusyAsync(CompleteSetupAsync);
         _updateOnline.Click += async (_, _) => await BusyAsync(InstallFromGithubAsync);
         _local.Click += async (_, _) => await BusyAsync(InstallFromLocalAsync);
         _official.Click += (_, _) => OpenUrl(OfficialBetterNcm);
         _chooseNcm.Click += (_, _) => ChooseCloudMusic();
         _chooseProfile.Click += (_, _) => ChooseProfile();
         _refresh.Click += (_, _) => RefreshEnvironment();
-        foreach (var button in new[] { _install, _updateOnline, _local, _official, _chooseNcm, _chooseProfile, _refresh })
+        _licenses.Click += (_, _) => ShowThirdPartyLicenses();
+        foreach (var button in new[] { _install, _updateOnline, _local, _official, _chooseNcm, _chooseProfile, _refresh, _licenses })
             Controls.Add(button);
 
+        Controls.Add(_progress);
         _status.ForeColor = Color.FromArgb(89, 99, 116);
-        _status.Height = 44;
+        _status.Height = 54;
         _status.Width = 475;
         _status.Text = "准备检查环境。";
         Shown += (_, _) => RefreshEnvironment();
@@ -120,7 +130,8 @@ internal sealed class SetupForm : Form
             ? "已安装插件：" + (string.Join("、", Directory.GetFiles(pluginDir, "FloatingCloud-v*.plugin")
                 .Select(Path.GetFileName).Take(3)) is var names && names.Length > 0 ? names : "未发现 FloatingCloud")
             : "插件目录：尚未建立（安装 BetterNCM 并启动网易云后再检测）";
-        if (!_busy) SetStatus("离线安装无需联网；「在线检查更新」从 GitHub 下载最新正式版。");
+        _infLink.Text = HasInflink() ? "InfLink-rs：已安装" : "InfLink-rs：未检测到（一键安装时自动部署）";
+        if (!_busy) SetStatus("一键安装会自动检查并部署 BetterNCM + InfLink-rs + FloatingCloud。");
     }
 
     private static string GetCloudMusicVersion(string executable)
@@ -135,6 +146,8 @@ internal sealed class SetupForm : Form
 
     private static string? FindCloudMusic()
     {
+        var appPath = FindAppPath();
+        if (appPath is not null) return appPath;
         var roots = new[]
         {
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -239,7 +252,7 @@ internal sealed class SetupForm : Form
         }
     }
 
-    private async Task InstallBundledAsync()
+    private async Task InstallBundledAsync(bool showCompletion = true)
     {
         CheckRequirements();
         SetStatus("正在验证安装器内置的 FloatingCloud 插件包…");
@@ -251,7 +264,7 @@ internal sealed class SetupForm : Form
         {
             await using (var target = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
                 await source.CopyToAsync(target);
-            InstallPlugin(temp);
+            InstallPlugin(temp, showCompletion);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
@@ -318,7 +331,7 @@ internal sealed class SetupForm : Form
         return Task.CompletedTask;
     }
 
-    private void InstallPlugin(string file)
+    private void InstallPlugin(string file, bool showCompletion = true)
     {
         if (new FileInfo(file).Length is <= 0 or > MaxPackageBytes)
             throw new InvalidDataException("插件包为空或超过大小限制。");
@@ -382,7 +395,28 @@ internal sealed class SetupForm : Form
         }
         finally { if (File.Exists(staging)) File.Delete(staging); }
         SetStatus($"已安装 FloatingCloud v{version}。重新启动网易云音乐后生效。");
-        MessageBox.Show(this, $"FloatingCloud v{version} 已安装到 BetterNCM！\n\n重启网易云音乐后，在插件设置中开启桌面浮窗。", "安装成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        if (showCompletion)
+            MessageBox.Show(this, $"FloatingCloud v{version} 已安装到 BetterNCM！\n\n重启网易云音乐后，在插件设置中开启桌面浮窗。", "安装成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void ShowThirdPartyLicenses()
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
+        if (stream is null) { OpenUrl("https://github.com/apoint123/inflink-rs/blob/main/LICENSE"); return; }
+        using var reader = new StreamReader(stream);
+        using var dialog = new Form
+        {
+            Text = "第三方组件许可 · InfLink-rs (GPL-3.0-only)",
+            Size = new Size(690, 560), StartPosition = FormStartPosition.CenterParent
+        };
+        var licenseText = new TextBox
+        {
+            Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+            ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 10),
+            Text = "InfLink-rs by apoint123\\r\\nSource: https://github.com/apoint123/inflink-rs\\r\\n\\r\\n" + reader.ReadToEnd()
+        };
+        dialog.Controls.Add(licenseText);
+        dialog.ShowDialog(this);
     }
 
     private static void OpenUrl(string url)

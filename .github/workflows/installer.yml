@@ -67,6 +67,18 @@ jobs:
           New-Item -ItemType Directory -Force dist/bundled | Out-Null
           Copy-Item $package dist/bundled/FloatingCloud.plugin
           Copy-Item $package dist/
+      - name: Download official InfLink-rs plugin release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo apoint123/inflink-rs --pattern 'InfLink-rs.plugin' --dir dist/bundled
+          if ($LASTEXITCODE -ne 0) { throw 'Official InfLink-rs download failed' }
+          python installer/validate-inflink.py dist/bundled/InfLink-rs.plugin
+          if ($LASTEXITCODE -ne 0) { throw 'InfLink-rs plugin package validation failed' }
+          Get-FileHash dist/bundled/InfLink-rs.plugin -Algorithm SHA256 | Format-List
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/apoint123/inflink-rs/main/LICENSE' -OutFile dist/bundled/InfLink-rs-LICENSE.txt
+          if (!(Select-String -Path dist/bundled/InfLink-rs-LICENSE.txt -Pattern 'GNU GENERAL PUBLIC LICENSE' -Quiet)) { throw 'Missing third party GPL license' }
       - name: Build self-contained EXE with embedded plugin
         shell: pwsh
         run: |
@@ -74,10 +86,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installer publish failed' }
           Rename-Item dist/installer/FloatingCloud.Setup.exe FloatingCloud-Setup.exe
           if (!(Test-Path dist/installer/FloatingCloud-Setup.exe)) { throw 'Missing Setup EXE' }
-          $pluginSize = (Get-Item dist/bundled/FloatingCloud.plugin).Length
+          $pluginSize = (Get-Item dist/bundled/FloatingCloud.plugin).Length + (Get-Item dist/bundled/InfLink-rs.plugin).Length
           $setupSize = (Get-Item dist/installer/FloatingCloud-Setup.exe).Length
           if ($setupSize -le $pluginSize) { throw 'EXE may not contain bundled plugin' }
           Get-FileHash dist/installer/FloatingCloud-Setup.exe -Algorithm SHA256 | Format-List
+          & .\\dist\\installer\\FloatingCloud-Setup.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Embedded resource self-test failed: $LASTEXITCODE" }
       - name: Upload installer and plugin as test artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -1,50 +1,55 @@
-# FloatingCloud 离线一键安装器（Windows x64）
+# FloatingCloud 一键安装器 · BetterNCM + InfLink-rs + FloatingCloud
 
-安装器采用 .NET 8 Windows Forms，并且把**完整构建且校验过的 `.plugin` 文件嵌入同一个自包含的 EXE**。第一次安装 FloatingCloud 不依赖 GitHub API，不要求用户安装 .NET 运行时。
+这个安装器以 **一键完成所有依赖** 为目标：支持 Windows x64 和当前 FloatingCloud 要求的网易云音乐 **3.1.42**。
 
-## 最简单的使用方法
+## 用户只需做什么
 
-1. 从 GitHub Releases 下载 `FloatingCloud-Setup.exe`，双击运行。
-2. Setup 自动检测网易云音乐 3.1.42 和 BetterNCM，若路径不对可手动选择。
-3. 如果缺少 BetterNCM，点击「安装 BetterNCM」打开**官方**安装器，完成后启动网易云一次以创建数据目录，再完全退出网易云（包括托盘）。
-4. 点击「一键离线安装」即可从 EXE 内置包部署 FloatingCloud，**全程不需要 GitHub API**。
-5. 重启网易云，在 BetterNCM 设置页打开 FloatingCloud 的桌面歌词。
+下载并打开 `FloatingCloud-Setup.exe`，确认自动识别的网易云路径，点击 **一键安装 / 修复**。
 
-已经安装 FloatingCloud 的用户可重复使用安装器：它会备份原有插件包到 BetterNCM 数据目录下的 `floatingcloud-backups`，替换安装包，不删除既有设置。检测到更新后的包更旧时会询问是否降级。
+安装器会依次：
 
-## 其他按钮
+1. 优先读取注册表 `App Paths\\cloudmusic.exe`（与 BetterNCM 官方安装器相同的检测入口），并回退到常见安装目录、卸载注册表；找不到时才提供手动选择。
+2. 检测网易云版本、是否正在运行、是否已装 BetterNCM。
+3. **缺少 BetterNCM**：向用户说明将安装第三方程序并获得同意，读取 [BetterNCM 官方适配目录](https://github.com/std-microblock/BetterNCM-Installer)，下载对应 x64 DLL，校验 PE 文件，必要时申请 Windows 管理员权限写入网易云安装目录的 `msimg32.dll`；按官方逻辑补齐缺失的 Microsoft VC++ x86/x64 运行库。
+4. **自动部署 InfLink-rs**：安装器在构建时从作者的 [GitHub Releases](https://github.com/apoint123/inflink-rs/releases) 获取并验证**未经修改**的 `InfLink-rs.plugin`，作为嵌入式资源分发；若已安装同版或更新版则跳过。
+5. **自动部署 FloatingCloud**：从 EXE 内置的 `.plugin` 安装，在更换版本前备份用户已有的插件包；保留设置。
+6. 检查安装后的文件，提示完成并启动网易云音乐。
 
-- **在线检查更新**：可选；通过 GitHub Releases API 下载最新正式版插件，不影响离线安装。代理节点共享 IP 被限流（403/429）时会有明确提示。
-- **本地安装 .plugin**：选择用户已经下载的插件包，不需要联网。
-- **安装 BetterNCM**：打开 [官方 BetterNCM 安装器](https://github.com/std-microblock/BetterNCM-Installer/releases/latest)，**不静默安装或篡改第三方程序**。
-- **选择网易云路径、选择插件数据目录**：支持自定义安装位置和 `BETTERNCM_PROFILE` 环境变量。
+已有 BetterNCM 的用户**不需要再次下载或覆盖** BetterNCM；直接安装 InfLink-rs 和 FloatingCloud。手动选择路径是检测失败后的备用功能，不是正常安装步骤。
 
-## 兼容性与安全设计
+## 其他功能
 
-- 仅支持 Windows x64 和当前插件清单声明的网易云音乐 **3.1.42**。
-- 必须已安装 BetterNCM，原生加载器 `msimg32.dll` 必须在网易云目录中。
-- 安装之前必须彻底关闭网易云音乐；不会在播放时覆盖原生 DLL。
-- `.plugin` 必须是含有 `floatingcloud-lite` 标识、版本号和关键组件的 ZIP 包。
-- 插件旧版本会先备份；保留 BetterNCM 配置和插件设置。
-- EXE 尚未签名，Windows SmartScreen 可能发出提示；首次公开发布前必须在 Windows 实机验证路径检测、安装和回滚。
-- 安装器不会在后台自动检查或静默安装任何更新。
+- **在线更新 FC**：可选，获取 Github 最新正式版 `.plugin`；共享代理节点导致 API 限流时可以继续使用本机离线安装。
+- **本地导入 FC**：离线选择用户已有的 `.plugin` 文件。
+- **BetterNCM 官方备用**：官方适配目录不可用、权限失败或需要修复旧版加载器时，可以使用其官方安装器。
+- **第三方许可**：可查看随 EXE 嵌入的 InfLink-rs GPL-3.0-only 完整许可文本。
+- 自动检测 `BETTERNCM_PROFILE` 环境变量，也允许手动选择数据目录；备份位于 `<BetterNCM 数据目录>\\floatingcloud-backups`。
 
-## 构建流程
+## 第三方代码与分发说明
 
-GitHub Actions 的 [Build FloatingCloud Offline Setup](../.github/workflows/installer.yml) 在 Windows runner：
+- [BetterNCM-Installer](https://github.com/std-microblock/BetterNCM-Installer) (GPL-3.0)：本项目根据公开的注册表定位和适配目录读取方式**独立编写 C# 安装逻辑**，不嵌入官方安装器源码、不重新分发其安装器 EXE。BetterNCM 的适配 DLL 在用户授权后才从官方配置指定的 HTTPS 地址下载。
+- [InfLink-rs](https://github.com/apoint123/inflink-rs) by apoint123 (GPL-3.0-only)：原始 `.plugin` 不修改，单独存放并安装，不与 FC 插件文件合并；安装包附带完整 GPL 许可并提供对应原始源代码仓库。InfLink-rs 的版本取决于构建时作者发布的最新正式版。
+- [Microsoft VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)：缺少运行库时从微软官方 HTTPS 地址下载安装。
 
-1. 运行 JavaScript 测试、编译 C++ `native.dll` 和 .NET 歌词助手；
-2. 校验生成的 `FloatingCloud-v<manifest版本>.plugin`；
-3. 复制完整包到 `dist/bundled/FloatingCloud.plugin`；
-4. 编译 `FloatingCloud-Setup.exe`，将插件包以嵌入式资源 `FloatingCloud.Setup.BundledPlugin` 打包进去；
-5. 上传 Actions Artifacts（含 EXE 和单独的 `.plugin` 供测试）。
+第三方组件均在安装时透明展示，用户可以拒绝管理员权限请求，遇到不符合版本或下载校验错误时不会强制安装。
 
-发布匹配的 GitHub Release 时，工作流还会把 EXE 和对应 `.plugin` 一并附加到该 Release。
+## 开发 / 打包
 
-本地编译也必须先运行 `tools/build-windows.ps1`，然后将 `.plugin` 复制到 `dist/bundled/FloatingCloud.plugin` 再运行：
+GitHub Actions 的 [Build FloatingCloud Offline Setup](../.github/workflows/installer.yml) 在 Windows：
 
-```powershell
-dotnet publish installer/FloatingCloud.Setup.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -p:IncludeNativeLibrariesForSelfExtract=true -o dist/installer
-```
+1. 编译 FloatingCloud 的 native.dll + 自包含歌词助手，打包并校验 `.plugin`。
+2. 下载、校验 InfLink-rs 官方正式 Release 插件包，获取 GPL 文本。
+3. 将两个独立 `.plugin` 文件和许可作为资源嵌入 `FloatingCloud-Setup.exe`。
+4. 构建自包含 Windows x64 EXE，在 Actions Artifacts 中提供安装器和 FC 插件供测试。
 
-离线安装器仅内置 FloatingCloud，不内置网易云音乐或 BetterNCM。
+由于新增了外部依赖下载，CI 必须成功验证 InfLink-rs 包，才会生成可分发的 EXE。
+
+### 当前仍需实机验证
+
+- 网易云 3.1.42 注册表路径识别（常见路径与自定义目录）。
+- 从**尚未安装 BetterNCM**的电脑，安装 BetterNCM DLL、VC++ 运行库以及两款插件。
+- 非管理员/系统保护目录的 UAC 提权体验。
+- 已安装 BetterNCM 或已有 InfLink-rs 的重复安装与版本更新。
+- 网易云启动后确认 InfLinkApi 工作与 FloatingCloud 歌词显示。
+
+CI 成功只能说明代码编译、打包校验通过；这不等于真实 Windows 环境已全部验证完成。

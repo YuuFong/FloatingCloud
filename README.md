@@ -6,7 +6,7 @@
 
 **普通用户（推荐）**
 
-从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-Setup.exe`（提供该附件的版本），双击运行。**内置完整插件包、离线安装不需要访问 GitHub**，自动检测网易云版本和 BetterNCM；若缺少 BetterNCM，会引导使用官方安装器。也支持在线升级、本地 `.plugin` 安装及原有插件备份。详见 [安装器说明](installer/README.md)。
+从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-Setup.exe`（提供该附件的版本），双击运行并点击 **「一键安装 / 修复」**。安装器自动定位网易云、在必要时下载并安装 BetterNCM，再自动部署 **InfLink-rs 和 FloatingCloud**；不需要用户进入 BetterNCM 插件商店逐个安装。FC 与 InfLink-rs 插件包内置于 EXE，只有第一次安装 BetterNCM 和可选的在线更新需要联网。也支持本地安装、原插件备份和自定义目录。详见 [安装器说明](installer/README.md)。
 
 **手动安装**
 
