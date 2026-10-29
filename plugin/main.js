@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.40-beta';
+  const VERSION = '0.4.40';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
