@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Reflection;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using Microsoft.Win32;
@@ -28,8 +29,10 @@ internal sealed class SetupForm : Form
     private readonly Label _profileLabel = NewLabel(183);
     private readonly Label _installed = NewLabel(223);
     private readonly Label _status = NewLabel(391);
-    private readonly Button _install = NewButton("一键安装 / 检查更新", 22, 272, 228);
-    private readonly Button _local = NewButton("从本地 .plugin 安装", 260, 272, 228);
+    private const string BundledResource = "FloatingCloud.Setup.BundledPlugin";
+    private readonly Button _install = NewButton("一键离线安装", 22, 272, 142);
+    private readonly Button _updateOnline = NewButton("在线检查更新", 186, 272, 142);
+    private readonly Button _local = NewButton("本地安装 .plugin", 350, 272, 142);
     private readonly Button _official = NewButton("安装 BetterNCM", 22, 328, 148);
     private readonly Button _chooseNcm = NewButton("选择网易云路径", 180, 328, 148);
     private readonly Button _chooseProfile = NewButton("选择插件数据目录", 338, 328, 150);
@@ -60,7 +63,7 @@ internal sealed class SetupForm : Form
             Font = new Font("Microsoft YaHei UI", 20F, FontStyle.Bold)
         });
         Controls.Add(new Label {
-            Text = "透明桌面歌词 · Windows x64 · 安装与在线更新",
+            Text = "透明桌面歌词 · Windows x64 · 离线部署 / 在线更新",
             Left = 24, Top = 64, Width = 468, Height = 27,
             ForeColor = Color.FromArgb(103, 116, 145)
         });
@@ -71,13 +74,14 @@ internal sealed class SetupForm : Form
         _install.ForeColor = Color.White;
         _install.FlatStyle = FlatStyle.Flat;
         _install.FlatAppearance.BorderSize = 0;
-        _install.Click += async (_, _) => await BusyAsync(InstallFromGithubAsync);
+        _install.Click += async (_, _) => await BusyAsync(InstallBundledAsync);
+        _updateOnline.Click += async (_, _) => await BusyAsync(InstallFromGithubAsync);
         _local.Click += async (_, _) => await BusyAsync(InstallFromLocalAsync);
         _official.Click += (_, _) => OpenUrl(OfficialBetterNcm);
         _chooseNcm.Click += (_, _) => ChooseCloudMusic();
         _chooseProfile.Click += (_, _) => ChooseProfile();
         _refresh.Click += (_, _) => RefreshEnvironment();
-        foreach (var button in new[] { _install, _local, _official, _chooseNcm, _chooseProfile, _refresh })
+        foreach (var button in new[] { _install, _updateOnline, _local, _official, _chooseNcm, _chooseProfile, _refresh })
             Controls.Add(button);
 
         _status.ForeColor = Color.FromArgb(89, 99, 116);
@@ -116,7 +120,7 @@ internal sealed class SetupForm : Form
             ? "已安装插件：" + (string.Join("、", Directory.GetFiles(pluginDir, "FloatingCloud-v*.plugin")
                 .Select(Path.GetFileName).Take(3)) is var names && names.Length > 0 ? names : "未发现 FloatingCloud")
             : "插件目录：尚未建立（安装 BetterNCM 并启动网易云后再检测）";
-        if (!_busy) SetStatus("点击「一键安装」会从本项目 GitHub Releases 下载最新插件包。");
+        if (!_busy) SetStatus("离线安装无需联网；「在线检查更新」从 GitHub 下载最新正式版。");
     }
 
     private static string GetCloudMusicVersion(string executable)
@@ -218,7 +222,7 @@ internal sealed class SetupForm : Form
     {
         if (_busy) return;
         _busy = true;
-        foreach (var button in new[] { _install, _local, _chooseNcm, _chooseProfile, _refresh }) button.Enabled = false;
+        foreach (var button in new[] { _install, _updateOnline, _local, _chooseNcm, _chooseProfile, _refresh }) button.Enabled = false;
         try { await job(); }
         catch (Exception e)
         {
@@ -228,11 +232,28 @@ internal sealed class SetupForm : Form
         finally
         {
             _busy = false;
-            foreach (var button in new[] { _install, _local, _chooseNcm, _chooseProfile, _refresh }) button.Enabled = true;
+            foreach (var button in new[] { _install, _updateOnline, _local, _chooseNcm, _chooseProfile, _refresh }) button.Enabled = true;
             var previous = _status.Text;
             RefreshEnvironment();
             SetStatus(previous);
         }
+    }
+
+    private async Task InstallBundledAsync()
+    {
+        CheckRequirements();
+        SetStatus("正在验证安装器内置的 FloatingCloud 插件包…");
+        var assembly = Assembly.GetExecutingAssembly();
+        await using var source = assembly.GetManifestResourceStream(BundledResource)
+            ?? throw new InvalidOperationException("内置插件包缺失，请从官方 GitHub Actions / Releases 重新下载完整安装器。");
+        var temp = Path.Combine(Path.GetTempPath(), "FloatingCloud-" + Guid.NewGuid().ToString("N") + ".plugin");
+        try
+        {
+            await using (var target = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                await source.CopyToAsync(target);
+            InstallPlugin(temp);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
     private async Task InstallFromGithubAsync()
