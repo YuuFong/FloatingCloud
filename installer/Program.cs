@@ -12,6 +12,11 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--self-test")
+        {
+            Environment.ExitCode = SetupForm.RunSelfTest();
+            return;
+        }
         if (args.Length == 3 && args[0] == "--install-betterncm")
         {
             Environment.ExitCode = SetupForm.RunElevatedBetterNcmInstall(args[1], args[2]) ? 0 : 1;
