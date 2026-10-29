@@ -12,5 +12,6 @@
   <ItemGroup>
     <!-- The native plugin is built and validated before this project is published. -->
     <EmbeddedResource Include="../dist/bundled/FloatingCloud.plugin" LogicalName="FloatingCloud.Setup.BundledPlugin" />
+    <EmbeddedResource Include="../dist/bundled/InfLink-rs.plugin" LogicalName="FloatingCloud.Setup.InfLinkPlugin" />
   </ItemGroup>
 </Project>
