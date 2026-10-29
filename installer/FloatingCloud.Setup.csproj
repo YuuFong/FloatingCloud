@@ -14,5 +14,7 @@
     <EmbeddedResource Include="../dist/bundled/FloatingCloud.plugin" LogicalName="FloatingCloud.Setup.BundledPlugin" />
     <EmbeddedResource Include="../dist/bundled/InfLink-rs.plugin" LogicalName="FloatingCloud.Setup.InfLinkPlugin" />
     <EmbeddedResource Include="../dist/bundled/InfLink-rs-LICENSE.txt" LogicalName="FloatingCloud.Setup.InfLinkLicense" />
+    <EmbeddedResource Include="../dist/bundled/BetterNCMII.dll" LogicalName="FloatingCloud.Setup.BetterNcmDll" />
+    <EmbeddedResource Include="../dist/bundled/BetterNCM-LICENSE.txt" LogicalName="FloatingCloud.Setup.BetterNcmLicense" />
   </ItemGroup>
 </Project>

@@ -11,8 +11,9 @@ namespace FloatingCloud.Setup;
 internal sealed partial class SetupForm
 {
     private const string InfLinkResource = "FloatingCloud.Setup.InfLinkPlugin";
-    private const string BetterNcmCatalog =
-        "https://gitcode.net/qq_21551787/bncm-data-pack2/-/raw/master/betterncm/betterncm3.json";
+    // Official BetterNCM v1.3.4 x64 DLL is validated and embedded by GitHub Actions.
+    // Avoid GitCode's unstable JSON catalog: it can return HTTP 406 in China.
+    private const string BetterNcmResource = "FloatingCloud.Setup.BetterNcmDll";
     private const string InfLinkSource = "https://github.com/apoint123/inflink-rs";
     private readonly Label _infLink = NewLabel(263);
     private readonly ProgressBar _progress = new()
@@ -42,10 +43,28 @@ internal sealed partial class SetupForm
                 if (document.RootElement.GetProperty("name").GetString() != expected)
                     return 4;
             }
-            using var license = assembly.GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
-            if (license is null) return 5;
-            using var reader = new StreamReader(license);
-            if (!reader.ReadToEnd().Contains("GNU GENERAL PUBLIC LICENSE")) return 6;
+            using (var betterDll = assembly.GetManifestResourceStream(BetterNcmResource))
+            {
+                if (betterDll is null) return 7;
+                var path = Path.Combine(Path.GetTempPath(), "FloatingCloud-selftest-" +
+                    Guid.NewGuid().ToString("N") + ".dll");
+                try
+                {
+                    using (var target = new FileStream(path, FileMode.CreateNew))
+                        betterDll.CopyTo(target);
+                    if (!IsPeFile(path, 0x8664)) return 8;
+                }
+                finally { File.Delete(path); }
+            }
+            foreach (var name in new[] {
+                "FloatingCloud.Setup.InfLinkLicense", "FloatingCloud.Setup.BetterNcmLicense"
+            })
+            {
+                using var license = assembly.GetManifestResourceStream(name);
+                if (license is null) return 5;
+                using var reader = new StreamReader(license);
+                if (!reader.ReadToEnd().Contains("GNU GENERAL PUBLIC LICENSE")) return 6;
+            }
             return 0;
         }
         catch { return 99; }
@@ -266,50 +285,22 @@ internal sealed partial class SetupForm
     private async Task InstallBetterNcmAsync(string ncmExe)
     {
         if (IsBetterNcmInstalled(ncmExe)) return;
-        var ncmVersion = new Version(3, 1, 42);
-        JsonDocument catalog;
-        try
-        {
-            using var response = await _http.GetAsync(BetterNcmCatalog);
-            response.EnsureSuccessStatusCode();
-            catalog = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                "无法读取 BetterNCM 官方适配目录。请检查校园网连接，也可使用官方 BetterNCM Installer 安装后重新点击一键部署。\n" + ex.Message, ex);
-        }
-
-        string? dllUrl = null;
-        using (catalog)
-        {
-            if (!catalog.RootElement.TryGetProperty("versions", out var entries) ||
-                entries.ValueKind != JsonValueKind.Object)
-                throw new InvalidDataException("BetterNCM 官方适配目录数据格式有变化，拒绝猜测兼容 DLL。");
-            foreach (var entry in entries.EnumerateObject())
-            {
-                if (!MatchesVersion(ncmVersion, entry.Name)) continue;
-                if (entry.Value.TryGetProperty("url_x64", out var file))
-                {
-                    dllUrl = file.GetString();
-                    break;
-                }
-            }
-        }
-        if (string.IsNullOrWhiteSpace(dllUrl))
-            throw new InvalidOperationException("BetterNCM 官方目录中没有找到支持网易云 3.1.42 x64 的 DLL，请使用其官方安装器确认兼容版本。");
-
-        var uri = new Uri(dllUrl);
-        if (uri.Scheme != Uri.UriSchemeHttps || string.IsNullOrWhiteSpace(uri.Host))
-            throw new InvalidDataException("BetterNCM 提供的下载地址不是 HTTPS，已停止。");
         var temp = Path.Combine(Path.GetTempPath(), "FloatingCloud-BetterNCM-" +
             Guid.NewGuid().ToString("N") + ".dll");
         try
         {
-            SetStatus("步骤 1/3 · 下载 BetterNCM DLL…");
-            await DownloadFileAsync(uri, temp, 100L * 1024 * 1024);
+            SetStatus("步骤 1/3 · 从安装器读取 BetterNCM 官方组件…");
+            await using (var resource = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream(BetterNcmResource)
+                ?? throw new InvalidDataException(
+                    "当前安装包缺少 BetterNCM 官方 DLL。请重新下载完整安装器。"))
+            await using (var output = new FileStream(temp, FileMode.CreateNew))
+                await resource.CopyToAsync(output);
+
             if (!IsPeFile(temp, 0x8664))
-                throw new InvalidDataException("下载的 BetterNCM 文件不是有效的 x64 Windows DLL。");
+                throw new InvalidDataException("内置 BetterNCM DLL 无效，已停止安装。");
+
+            // Do not overwrite an existing loader from an unknown installation.
             VerifyNcmExe(ncmExe);
             var destination = Path.Combine(Path.GetDirectoryName(ncmExe)!, "msimg32.dll");
             try
@@ -318,22 +309,21 @@ internal sealed partial class SetupForm
             }
             catch (UnauthorizedAccessException)
             {
-                // Request elevation only for writing to the protected NCM directory.
-                SetStatus("步骤 1/3 · Windows 正在请求安装 BetterNCM 的管理员权限…");
+                SetStatus("步骤 1/3 · 请求管理员权限安装 BetterNCM…");
                 using var elevated = Process.Start(new ProcessStartInfo
                 {
                     FileName = Environment.ProcessPath ??
-                        throw new InvalidOperationException("无法定位安装器程序路径"),
+                        throw new InvalidOperationException("无法定位当前安装器路径。"),
                     Arguments = $"--install-betterncm \"{temp}\" \"{ncmExe}\"",
                     Verb = "runas",
                     UseShellExecute = true
                 }) ?? throw new InvalidOperationException("无法启动管理员权限安装步骤");
                 await Task.Run(elevated.WaitForExit);
                 if (elevated.ExitCode != 0)
-                    throw new InvalidOperationException("管理员权限安装 BetterNCM 未完成（已取消或出现错误）。");
+                    throw new InvalidOperationException("BetterNCM 管理员权限安装未完成或被取消。");
             }
-            if (!File.Exists(destination))
-                throw new IOException("BetterNCM DLL 写入失败；请确认网易云目录允许写入。");
+            if (!File.Exists(destination) || !IsPeFile(destination, 0x8664))
+                throw new IOException("BetterNCM DLL 安装校验失败，请检查网易云安装目录权限。");
         }
         finally { try { File.Delete(temp); } catch (IOException) { } }
     }
