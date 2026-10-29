@@ -31,7 +31,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 #toolbar button:hover,#toolbar button:focus-visible{background:transparent;color:#aaccff;filter:drop-shadow(0 1px 3px #000b)}
 #resize-guide{position:absolute;top:92px;left:0;right:0;bottom:8px;background:rgba(16,20,30,.58);border:1px solid rgba(190,203,226,.38);border-radius:7px;box-sizing:border-box;opacity:0;pointer-events:none;transition:opacity 130ms ease;z-index:1}
 #root.width-adjusting #resize-guide{opacity:1}
-#stage{z-index:2;width:100%;position:absolute;top:calc(60px + var(--fc-toolbar-gap,12px));left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto}
+#stage{z-index:2;width:100%;position:absolute;top:calc(60px + var(--fc-toolbar-gap,12px));left:0;right:0;min-height:0;overflow:hidden;box-sizing:border-box;background:transparent!important;border:0;margin:0 auto;opacity:1;transform:translateY(0)}
 #stage .fc-track{top:32px}
 /* TBL's single text-shadow belongs to all rows; do not override its
    alpha-based primary/translation/secondary palette with FC's old filter. */
@@ -44,16 +44,24 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
 /* The original + translation/next rows sit at 92..(92+2*pitch).
    Spectrum axis = midpoint between row centers, nudged 9px upward. */
 #spectrum{width:100%;position:absolute;top:calc(92px + var(--fc-line-pitch,53px) - 9px);
- left:0;right:0;height:100px;transform:translateY(-50%);display:none;
+ left:0;right:0;height:100px;transform:translateY(calc(-50% + var(--fc-line-pitch,53px)));display:flex;visibility:hidden;
  align-items:center;justify-content:center;gap:var(--fc-spectrum-gap,3px);
- pointer-events:none;opacity:0;transition:opacity 300ms ease}
-#root.pure-music #spectrum{display:flex;opacity:.95}
+ pointer-events:none;opacity:0}
+#root.pure-music #spectrum{visibility:visible;opacity:.95;transform:translateY(-50%)}
 #root.pure-music #stage{visibility:hidden}
+#root.spectrum-entering #spectrum,#root.spectrum-exiting #spectrum{visibility:visible}
+#root.spectrum-entering #stage,#root.spectrum-exiting #stage,#root.spectrum-entering #spectrum,#root.spectrum-exiting #spectrum{transition:none}
+#root.spectrum-entering.spectrum-entry-active #stage{opacity:0;transform:translateY(calc(-1 * var(--fc-line-pitch,53px)));transition:opacity 300ms cubic-bezier(.22,.72,.24,1),transform 300ms cubic-bezier(.22,.72,.24,1)}
+#root.spectrum-entering.spectrum-entry-active #spectrum{opacity:.95;transform:translateY(-50%);transition:opacity 300ms cubic-bezier(.22,.72,.24,1),transform 300ms cubic-bezier(.22,.72,.24,1)}
+#root.spectrum-exiting #stage{opacity:0;transform:translateY(var(--fc-line-pitch,53px))}
+#root.spectrum-exiting #spectrum{opacity:.95;transform:translateY(-50%)}
+#root.spectrum-exiting.spectrum-exit-active #stage{opacity:1;transform:translateY(0);transition:opacity 300ms cubic-bezier(.2,.9,.1,1),transform 300ms cubic-bezier(.2,.9,.1,1)}
+#root.spectrum-exiting.spectrum-exit-active #spectrum{opacity:0;transform:translateY(calc(-50% - var(--fc-line-pitch,53px)));transition:opacity 300ms cubic-bezier(.2,.9,.1,1),transform 300ms cubic-bezier(.2,.9,.1,1)}
 #spectrum span{width:var(--fc-spectrum-bar-width,3px);min-width:var(--fc-spectrum-bar-width,3px);
  flex:0 0 var(--fc-spectrum-bar-width,3px);height:5px;background:var(--fc-spectrum-color,#d4d9e5);
  border-radius:99px;transform-origin:center bottom;box-shadow:0 1px 3px rgba(0,0,0,.6);
  transition:background 280ms ease,opacity 260ms ease;opacity:.78}
-@media(prefers-reduced-motion:reduce){#spectrum span{transition:none}}
+@media(prefers-reduced-motion:reduce){#spectrum span,#root.spectrum-entering.spectrum-entry-active #stage,#root.spectrum-entering.spectrum-entry-active #spectrum,#root.spectrum-exiting.spectrum-exit-active #stage,#root.spectrum-exiting.spectrum-exit-active #spectrum{transition:none}}
 </style></head><body>
 <div id="root"><div id="toolbar"><div class="fc-tools-left"><button data-action="seekBack" title="后退0.5秒">−0.5s</button><button data-action="seekForward" title="前进0.5秒">+0.5s</button><button data-action="previous" title="上一曲">⏮</button></div><button data-action="toggle" id="play-pause" title="播放/暂停">Ⅱ</button><div class="fc-tools-right"><button data-action="next" title="下一曲">⏭</button><button id="gear" title="快速设置">⚙</button><button data-action="lock" title="锁定，鼠标穿透">♙</button><button data-action="close" title="关闭浮窗">✕</button></div></div><div id="mini-settings"><span>字号</span><button data-action="fontSmaller" title="减小字号">−</button><button data-action="fontLarger" title="增大字号">+</button><button data-action="refreshLyrics" title="重新获取当前歌词" aria-label="重新获取当前歌词">⟳</button></div><div id="resize-guide" aria-hidden="true"></div><div id="stage" class="fc-stage"></div><div id="spectrum" aria-label="系统音频频谱"></div><div id="state"></div></div>
 <script>
@@ -66,6 +74,7 @@ const Core = window.FloatingCloudCore;
 '''+renderer+'''
 let settings=Core.normalizeSettings({}),lines=[],chorusIntervals=[],lastTrackKey='',clock=Core.createClock();
 let ready=false,view=null,lastUpdate=0,playStatus=false,controlsTimer=null,locked=false,pureMusic=false,searching=false,swapTimer=null;
+let spectrumPhase='lyrics',spectrumTimer=null,spectrumTicket=0,displayedSearching=false;
 const stage=document.getElementById('stage'), state=document.getElementById('state');
 const root=document.getElementById('root'),toolbar=document.getElementById('toolbar');
 function postAction(action){ try{window.chrome?.webview?.postMessage(action)}catch(e){console.warn(e)} }
@@ -115,6 +124,10 @@ let spectrumTargets=spectrumBars.map(()=>0),spectrumVisuals=spectrumBars.map(()=
 function renderSpectrumFrame(now){
  // A native lyric window used to write 32 DOM bar heights at 60fps even
  // during ordinary songs. Only touch the spectrum DOM when it is visible.
+ if(spectrumPhase==='exiting'){
+   requestAnimationFrame(renderSpectrumFrame);
+   return;
+ }
  if(!pureMusic){
    if(spectrumRendered){
      spectrumRendered=false;
@@ -146,6 +159,55 @@ function renderSpectrumFrame(now){
 requestAnimationFrame(renderSpectrumFrame);
 function renderPlayState(){document.getElementById('play-pause').textContent=playStatus?'Ⅱ':'▶';}
 function setMessage(msg){state.textContent=msg||''}
+function applyLyricRows(fade=false){
+ clearTimeout(swapTimer);swapTimer=null;
+ stage.style.transition='';stage.style.opacity='';
+ if(fade){
+   stage.style.transition='opacity 170ms ease';stage.style.opacity='0.12';
+   swapTimer=setTimeout(()=>{
+     swapTimer=null;
+     view.setLines(lines);view.applySettings(settings);
+     displayedSearching=searching;stage.style.opacity='1';
+   },170);
+ }else{
+   view.setLines(lines);view.applySettings(settings);
+   displayedSearching=searching;
+ }
+}
+function cancelSpectrumTimer(){clearTimeout(spectrumTimer);spectrumTimer=null;return ++spectrumTicket;}
+function settleSpectrum(){
+ cancelSpectrumTimer();root.classList.remove('spectrum-entering','spectrum-entry-active','spectrum-exiting','spectrum-exit-active');
+ root.classList.add('pure-music');spectrumPhase='spectrum';
+}
+function startSpectrumEntry(){
+ clearTimeout(swapTimer);swapTimer=null;stage.style.transition='';stage.style.opacity='';
+ if(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches){settleSpectrum();return;}
+ const ticket=cancelSpectrumTimer();spectrumPhase='entering';
+ root.classList.remove('pure-music','spectrum-exiting','spectrum-exit-active');
+ root.classList.add('spectrum-entering');
+ void root.offsetHeight;
+ requestAnimationFrame(()=>{if(ticket===spectrumTicket)root.classList.add('spectrum-entry-active')});
+ spectrumTimer=setTimeout(()=>{if(ticket===spectrumTicket)settleSpectrum()},380);
+}
+function startSpectrumExit(){
+ if(spectrumPhase==='entering')settleSpectrum();
+ clearTimeout(swapTimer);swapTimer=null;stage.style.transition='';stage.style.opacity='';
+ applyLyricRows();
+ if(window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches){
+   cancelSpectrumTimer();root.classList.remove('pure-music','spectrum-entering','spectrum-entry-active','spectrum-exiting','spectrum-exit-active');
+   spectrumPhase='lyrics';return;
+ }
+ const ticket=cancelSpectrumTimer();spectrumPhase='exiting';
+ root.classList.remove('pure-music','spectrum-entering','spectrum-entry-active');
+ root.classList.add('spectrum-exiting');
+ void root.offsetHeight;
+ requestAnimationFrame(()=>{if(ticket===spectrumTicket)root.classList.add('spectrum-exit-active')});
+ spectrumTimer=setTimeout(()=>{
+   if(ticket!==spectrumTicket)return;
+   root.classList.remove('spectrum-exiting','spectrum-exit-active');spectrumPhase='lyrics';
+   if(view.lines!==lines)applyLyricRows(displayedSearching&&!searching&&lines.length>0);
+ },380);
+}
 function receive(message){
   if (!message || typeof message !== 'object')return;
   switch(message.type){
@@ -164,20 +226,13 @@ function receive(message){
           ]
         : Array.isArray(p.lines)?p.lines.slice(0,300):[];
       pureMusic=Boolean(p.pureMusic)&&!searching;
-      root.classList.toggle('pure-music',pureMusic);
-      if(wasSearching && !searching && !pureMusic && lines.length) {
-        stage.style.transition='opacity 170ms ease';
-        stage.style.opacity='0.12';
-        clearTimeout(swapTimer);
-        swapTimer=setTimeout(()=>{
-          view.setLines(lines);view.applySettings(settings);
-          stage.style.opacity='1';
-        },170);
-      } else {
-        clearTimeout(swapTimer);
-        stage.style.opacity='1';
-        view.setLines(lines);view.applySettings(settings);
-      }
+      if(pureMusic){
+        if(spectrumPhase==='exiting')settleSpectrum();
+        else if(spectrumPhase==='lyrics')startSpectrumEntry();
+      }else if(spectrumPhase==='spectrum'||spectrumPhase==='entering')startSpectrumExit();
+      else if(spectrumPhase==='lyrics')applyLyricRows(wasSearching&&!searching&&lines.length>0);
+      // During spectrum exit the last visible search/message frame stays
+      // stable; the latest result is applied once the layers finish moving.
       setMessage(p.title||'');break;
     }
     case 'timeline':{
@@ -212,7 +267,7 @@ function raf(){
  const pos=searching?0:clock.position(),index=searching?0:Core.resolveIndex(lines,pos),progress=searching?0:Core.lyricProgress(lines,index,pos);
  const chorusActive=playStatus&&!searching&&!pureMusic&&
    Core.isChorusActive(chorusIntervals,pos-settings.offsetMs);
- view.update(index,progress,pos,chorusActive);
+ if(spectrumPhase==='lyrics'&&!swapTimer)view.update(index,progress,pos,chorusActive);
  requestAnimationFrame(raf);
 }
 requestAnimationFrame(raf);

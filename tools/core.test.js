@@ -215,6 +215,8 @@ test('instrumental placeholder lyrics trigger spectrum without false positive or
  const silent=[{time:0,text:'纯音乐，请欣赏',kind:'lrc'}];
  assert.equal(C.isInstrumentalPlaceholder(silent[0]),true);
  assert.equal(C.isInstrumentalPlaceholder({text:'  纯音乐，请欣赏！  '}),true);
+ assert.equal(C.isInstrumentalPlaceholder({text:'此歌曲为没有填词的纯音乐，请欣赏'}),true);
+ assert.equal(C.shouldDisplaySpectrum([{text:'此歌曲为没有填词的纯音乐，请欣赏'}],false,false,'auto'),true);
  assert.equal(C.isInstrumentalPlaceholder({text:'Instrumental Version'}),true);
  assert.equal(C.shouldDisplaySpectrum(silent,false,false,'auto'),true);
  assert.equal(C.shouldDisplaySpectrum([],false,false,'auto'),true);

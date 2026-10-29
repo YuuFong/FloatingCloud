@@ -143,7 +143,12 @@ static class Program
         var resolved=(await coordinator.ResolveWithResultAsync(track,token)).Lyrics;
         if(resolved is null)return null;
         var parsed=resolved.Content;
-        if(parsed.IsPureMusic)
+        // TBL also recognizes a single non-information line containing "纯音乐"
+        // when the parsed provider flag is absent (for example Netease's prose
+        // placeholder). Use the same projected document as LyricSyncService.
+        var document=ResolvedLyricsCompatibilityProjector.ToLyricDocument(
+            resolved,includeInformationLines:false);
+        if(document.IsPureMusic)
             return new Response(q.TrackKey,resolved.ProviderId.Value,"instrumental",true,[],null);
         if(parsed.TimingKind==LyricTimingKind.Unsynced)return null;
         var lines=parsed.Lines.Where(line=>!line.IsInformationLine).Take(500)
