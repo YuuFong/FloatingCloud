@@ -294,7 +294,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:transparent;overf
   }
   function isInstrumentalPlaceholder(line) {
     const t = normalizeNonLyric(line?.text);
-    return /^(?:纯音乐|纯音乐请欣赏|纯音乐敬请欣赏|该歌曲为纯音乐|此歌曲为纯音乐|本歌曲为纯音乐|该歌曲为纯音乐请欣赏|此歌曲为纯音乐请欣赏|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(t);
+    return /^(?:(?:(?:该|此|本)歌曲为)?(?:没有填词的)?纯音乐(?:敬?请欣赏)?|此歌曲为伴奏|伴奏|无歌词|暂无歌词|暂未收录歌词|暂无相关歌词|instrumental|instrumentalversion|musiconly|nolyrics|nolyricsavailable)$/.test(t);
   }
   function isLyricCredit(line) {
     const t=String(line?.text||'').normalize('NFKC').trim();
