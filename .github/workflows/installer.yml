@@ -77,6 +77,8 @@ jobs:
           python installer/validate-inflink.py dist/bundled/InfLink-rs.plugin
           if ($LASTEXITCODE -ne 0) { throw 'InfLink-rs plugin package validation failed' }
           Get-FileHash dist/bundled/InfLink-rs.plugin -Algorithm SHA256 | Format-List
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/apoint123/inflink-rs/main/LICENSE' -OutFile dist/bundled/InfLink-rs-LICENSE.txt
+          if (!(Select-String -Path dist/bundled/InfLink-rs-LICENSE.txt -Pattern 'GNU GENERAL PUBLIC LICENSE' -Quiet)) { throw 'Missing third party GPL license' }
       - name: Build self-contained EXE with embedded plugin
         shell: pwsh
         run: |
