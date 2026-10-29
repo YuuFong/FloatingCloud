@@ -49,10 +49,7 @@ internal sealed partial class SetupForm : Form
     private readonly Button _refresh = NewButton("重新检测", 378, 506, 110);
     private readonly Button _licenses = NewButton("第三方许可", 24, 506, 130);
     private string? _cloudMusic;
-    private string _profile = Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.User)
-        ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.Machine)
-        ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE")
-        ?? @"C:\betterncm";
+    private string _profile = DetectBetterNcmProfile();
     private bool _busy;
 
     internal SetupForm()
