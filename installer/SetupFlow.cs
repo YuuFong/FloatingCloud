@@ -43,10 +43,28 @@ internal sealed partial class SetupForm
                 if (document.RootElement.GetProperty("name").GetString() != expected)
                     return 4;
             }
-            using var license = assembly.GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
-            if (license is null) return 5;
-            using var reader = new StreamReader(license);
-            if (!reader.ReadToEnd().Contains("GNU GENERAL PUBLIC LICENSE")) return 6;
+            using (var betterDll = assembly.GetManifestResourceStream(BetterNcmResource))
+            {
+                if (betterDll is null) return 7;
+                var path = Path.Combine(Path.GetTempPath(), "FloatingCloud-selftest-" +
+                    Guid.NewGuid().ToString("N") + ".dll");
+                try
+                {
+                    using (var target = new FileStream(path, FileMode.CreateNew))
+                        betterDll.CopyTo(target);
+                    if (!IsPeFile(path, 0x8664)) return 8;
+                }
+                finally { File.Delete(path); }
+            }
+            foreach (var name in new[] {
+                "FloatingCloud.Setup.InfLinkLicense", "FloatingCloud.Setup.BetterNcmLicense"
+            })
+            {
+                using var license = assembly.GetManifestResourceStream(name);
+                if (license is null) return 5;
+                using var reader = new StreamReader(license);
+                if (!reader.ReadToEnd().Contains("GNU GENERAL PUBLIC LICENSE")) return 6;
+            }
             return 0;
         }
         catch { return 99; }
