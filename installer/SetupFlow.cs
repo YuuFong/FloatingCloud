@@ -14,10 +14,10 @@ internal sealed partial class SetupForm
     private const string BetterNcmCatalog =
         "https://gitcode.net/qq_21551787/bncm-data-pack2/-/raw/master/betterncm/betterncm3.json";
     private const string InfLinkSource = "https://github.com/apoint123/inflink-rs";
-    private readonly Label _infLink = NewLabel(247);
+    private readonly Label _infLink = NewLabel(263);
     private readonly ProgressBar _progress = new()
     {
-        Left = 24, Top = 383, Width = 465, Height = 10,
+        Left = 24, Top = 426, Width = 465, Height = 10,
         Style = ProgressBarStyle.Continuous
     };
 
@@ -103,6 +103,8 @@ internal sealed partial class SetupForm
             SetStatus("步骤 1/3 · 获取 BetterNCM 官方兼容版本…");
             _progress.Value = 10;
             await InstallBetterNcmAsync(_cloudMusic!);
+            SetStatus("步骤 1/3 · 检查 BetterNCM 需要的 VC++ 运行库…");
+            await EnsureVcRuntimeAsync();
         }
         if (!IsBetterNcmInstalled(_cloudMusic))
             throw new InvalidOperationException("BetterNCM 还没有安装成功。请查看上方错误信息。");
@@ -118,9 +120,59 @@ internal sealed partial class SetupForm
         RefreshEnvironment();
         SetStatus("已完成：BetterNCM、InfLink-rs、FloatingCloud。重启网易云音乐即可使用。");
         MessageBox.Show(this,
-            "三个组件已部署完成！\n\nBetterNCM：已安装\nInfLink-rs：" + inflinkResult +
-            "\nFloatingCloud：已安装\n\n现在可以启动网易云音乐，在 BetterNCM 中打开桌面歌词。",
+            "三个组件已部署完成！\\n\\nBetterNCM：已安装\\nInfLink-rs：" + inflinkResult +
+            "\\nFloatingCloud：已安装\\n\\n现在将启动网易云音乐。",
             "FloatingCloud 安装完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        try
+        {
+            Process.Start(new ProcessStartInfo(_cloudMusic!) {
+                WorkingDirectory = Path.GetDirectoryName(_cloudMusic!)!,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception e) { SetStatus("安装完成，但未能自动启动网易云：" + e.Message); }
+    }
+
+    private static bool HasVcRedist(string arch)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\" + arch);
+            return Convert.ToInt32(key?.GetValue("Installed") ?? 0) == 1;
+        }
+        catch { return false; }
+    }
+
+    private async Task EnsureVcRuntimeAsync()
+    {
+        // BetterNCM's official installer checks both runtime architectures.
+        foreach (var arch in new[] { "x64", "x86" })
+        {
+            if (HasVcRedist(arch)) continue;
+            SetStatus("正在获取 Microsoft VC++ " + arch + " 运行库…");
+            var url = new Uri("https://aka.ms/vs/17/release/vc_redist." + arch + ".exe");
+            var temp = Path.Combine(Path.GetTempPath(), "FloatingCloud-vc-" +
+                Guid.NewGuid().ToString("N") + ".exe");
+            try
+            {
+                await DownloadFileAsync(url, temp, 70L * 1024 * 1024);
+                if (!IsPeFile(temp, arch == "x64" ? (ushort)0x8664 : (ushort)0x14c, requireDll: false))
+                    throw new InvalidDataException("VC++ 运行库安装程序不是有效的 Windows EXE。");
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = temp,
+                    Arguments = "/install /passive /norestart",
+                    Verb = "runas",
+                    UseShellExecute = true
+                }) ?? throw new InvalidOperationException("无法启动 VC++ 运行库安装程序");
+                await Task.Run(process.WaitForExit);
+                if (process.ExitCode != 0 && process.ExitCode != 3010 && process.ExitCode != 1638)
+                    throw new InvalidOperationException(
+                        "VC++ " + arch + " 运行库安装未完成（代码 " + process.ExitCode + "）。");
+            }
+            finally { try { File.Delete(temp); } catch (IOException) { } }
+        }
     }
 
     private async Task InstallBetterNcmAsync(string ncmExe)
@@ -242,7 +294,7 @@ internal sealed partial class SetupForm
         return true;
     }
 
-    private static bool IsPeFile(string path, ushort expectedMachine)
+    private static bool IsPeFile(string path, ushort expectedMachine, bool requireDll = true)
     {
         try
         {
@@ -254,7 +306,10 @@ internal sealed partial class SetupForm
             if (peOffset < 64 || peOffset + 24 > file.Length) return false;
             file.Position = peOffset;
             if (reader.ReadUInt32() != 0x00004550) return false;
-            return reader.ReadUInt16() == expectedMachine;
+            var machine = reader.ReadUInt16();
+            file.Position = peOffset + 22;
+            var flags = reader.ReadUInt16();
+            return machine == expectedMachine && (((flags & 0x2000) != 0) == requireDll);
         }
         catch { return false; }
     }
