@@ -42,6 +42,7 @@ internal sealed partial class SetupForm : Form
     private readonly Button _chooseNcm = NewButton("选择网易云路径", 180, 365, 148);
     private readonly Button _chooseProfile = NewButton("选择插件数据目录", 338, 365, 150);
     private readonly Button _refresh = NewButton("重新检测", 378, 506, 110);
+    private readonly Button _licenses = NewButton("第三方许可", 24, 506, 130);
     private string? _cloudMusic;
     private string _profile = Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.User)
         ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.Machine)
@@ -86,7 +87,8 @@ internal sealed partial class SetupForm : Form
         _chooseNcm.Click += (_, _) => ChooseCloudMusic();
         _chooseProfile.Click += (_, _) => ChooseProfile();
         _refresh.Click += (_, _) => RefreshEnvironment();
-        foreach (var button in new[] { _install, _updateOnline, _local, _official, _chooseNcm, _chooseProfile, _refresh })
+        _licenses.Click += (_, _) => ShowThirdPartyLicenses();
+        foreach (var button in new[] { _install, _updateOnline, _local, _official, _chooseNcm, _chooseProfile, _refresh, _licenses })
             Controls.Add(button);
 
         Controls.Add(_progress);
@@ -393,6 +395,26 @@ internal sealed partial class SetupForm : Form
         SetStatus($"已安装 FloatingCloud v{version}。重新启动网易云音乐后生效。");
         if (showCompletion)
             MessageBox.Show(this, $"FloatingCloud v{version} 已安装到 BetterNCM！\n\n重启网易云音乐后，在插件设置中开启桌面浮窗。", "安装成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void ShowThirdPartyLicenses()
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
+        if (stream is null) { OpenUrl("https://github.com/apoint123/inflink-rs/blob/main/LICENSE"); return; }
+        using var reader = new StreamReader(stream);
+        using var dialog = new Form
+        {
+            Text = "第三方组件许可 · InfLink-rs (GPL-3.0-only)",
+            Size = new Size(690, 560), StartPosition = FormStartPosition.CenterParent
+        };
+        var licenseText = new TextBox
+        {
+            Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
+            ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 10),
+            Text = "InfLink-rs by apoint123\\r\\nSource: https://github.com/apoint123/inflink-rs\\r\\n\\r\\n" + reader.ReadToEnd()
+        };
+        dialog.Controls.Add(licenseText);
+        dialog.ShowDialog(this);
     }
 
     private static void OpenUrl(string url)
