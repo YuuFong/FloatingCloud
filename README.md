@@ -6,7 +6,7 @@
 
 **普通用户（推荐）**
 
-从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-Setup.exe`（提供该附件的版本），双击运行。Setup 会检查网易云版本与 BetterNCM、在线下载 FloatingCloud 并部署到插件目录；缺少 BetterNCM 时会引导打开其官方安装器。具体步骤、限制见 [安装器说明](installer/README.md)。
+从 [Releases](https://github.com/YuuFong/FloatingCloud/releases) 下载 `FloatingCloud-Setup.exe`（提供该附件的版本），双击运行。**内置完整插件包、离线安装不需要访问 GitHub**，自动检测网易云版本和 BetterNCM；若缺少 BetterNCM，会引导使用官方安装器。也支持在线升级、本地 `.plugin` 安装及原有插件备份。详见 [安装器说明](installer/README.md)。
 
 **手动安装**
 
