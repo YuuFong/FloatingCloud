@@ -21,6 +21,36 @@ internal sealed partial class SetupForm
         Style = ProgressBarStyle.Continuous
     };
 
+    internal static int RunSelfTest()
+    {
+        try
+        {
+            if (!MatchesVersion(new Version(3, 1, 42), ">=3.1.42 <3.1.43") ||
+                MatchesVersion(new Version(3, 1, 43), ">=3.1.42 <3.1.43"))
+                return 1;
+            var assembly = Assembly.GetExecutingAssembly();
+            foreach (var (name, expected) in new[] {
+                ("FloatingCloud.Setup.BundledPlugin", "FloatingCloud"),
+                ("FloatingCloud.Setup.InfLinkPlugin", "InfLink-rs") })
+            {
+                using var stream = assembly.GetManifestResourceStream(name);
+                if (stream is null) return 2;
+                using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+                var entry = zip.GetEntry("manifest.json");
+                if (entry is null) return 3;
+                using var document = JsonDocument.Parse(entry.Open());
+                if (document.RootElement.GetProperty("name").GetString() != expected)
+                    return 4;
+            }
+            using var license = assembly.GetManifestResourceStream("FloatingCloud.Setup.InfLinkLicense");
+            if (license is null) return 5;
+            using var reader = new StreamReader(license);
+            if (!reader.ReadToEnd().Contains("GNU GENERAL PUBLIC LICENSE")) return 6;
+            return 0;
+        }
+        catch { return 99; }
+    }
+
     private static string? FindAppPath()
     {
         // BetterNCM Installer obtains the registered App Paths value first.
