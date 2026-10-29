@@ -261,6 +261,8 @@ internal sealed class SetupForm : Form
         CheckRequirements();
         SetStatus("正在读取 GitHub 最新发布信息…");
         using var releaseResponse = await _http.GetAsync(ReleaseApi);
+        if (releaseResponse.StatusCode is System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.TooManyRequests)
+            throw new InvalidOperationException("GitHub API 请求受限，可能是共享代理节点被限流。可以切换网络，或直接使用内置离线安装功能。");
         releaseResponse.EnsureSuccessStatusCode();
         using var document = JsonDocument.Parse(await releaseResponse.Content.ReadAsStringAsync());
         var assets = document.RootElement.GetProperty("assets").EnumerateArray();
@@ -318,15 +320,17 @@ internal sealed class SetupForm : Form
 
     private void InstallPlugin(string file)
     {
-        if (new FileInfo(file).Length > MaxPackageBytes)
-            throw new InvalidDataException("插件包超过大小限制。");
+        if (new FileInfo(file).Length is <= 0 or > MaxPackageBytes)
+            throw new InvalidDataException("插件包为空或超过大小限制。");
         string version;
         using (var archive = ZipFile.OpenRead(file))
         {
             var manifest = archive.GetEntry("manifest.json")
                 ?? throw new InvalidDataException("插件包缺少 manifest.json。");
-            if (archive.GetEntry("native.dll") is null || archive.GetEntry("FloatingCloudLyrics.exe") is null)
-                throw new InvalidDataException("插件包缺少原生组件或歌词助手。");
+            if (archive.GetEntry("native.dll") is null ||
+                archive.GetEntry("FloatingCloudLyrics.exe") is null ||
+                archive.GetEntry("main.js") is null || archive.GetEntry("desktop.html") is null)
+                throw new InvalidDataException("插件包缺少完整的原生组件、歌词助手或桌面显示文件。");
             using var stream = manifest.Open();
             using var document = JsonDocument.Parse(stream);
             var root = document.RootElement;
@@ -340,18 +344,41 @@ internal sealed class SetupForm : Form
         Directory.CreateDirectory(pluginDir);
         var filename = $"FloatingCloud-v{version}.plugin";
         var destination = Path.Combine(pluginDir, filename);
+        var previous = Directory.GetFiles(pluginDir, "FloatingCloud-v*.plugin");
+        // Avoid silently downgrading an installed version.
+        var incoming = Version.Parse(version);
+        var existingVersions = previous
+            .Select(path => Path.GetFileNameWithoutExtension(path))
+            .Select(name => name.StartsWith("FloatingCloud-v", StringComparison.OrdinalIgnoreCase)
+                ? name["FloatingCloud-v".Length..] : "")
+            .Select(text => Version.TryParse(text, out var parsed) ? parsed : null)
+            .Where(v => v is not null)
+            .ToList();
+        if (existingVersions.Any(v => v! > incoming) &&
+            MessageBox.Show(this, $"已安装的 FloatingCloud 版本高于 v{version}。是否仍要降级？",
+                "确认降级", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
         var staging = Path.Combine(pluginDir, "." + Guid.NewGuid().ToString("N") + ".tmp");
+        var backups = Path.Combine(_profile, "floatingcloud-backups");
         try
         {
+            // Never delete an older package before the new package has been copied.
             File.Copy(file, staging, overwrite: false);
-            File.Move(staging, destination, overwrite: true);
-            foreach (var old in Directory.EnumerateFiles(pluginDir, "FloatingCloud-v*.plugin"))
+            if (previous.Length > 0)
             {
-                if (!string.Equals(old, destination, StringComparison.OrdinalIgnoreCase))
+                Directory.CreateDirectory(backups);
+                foreach (var old in previous)
                 {
-                    try { File.Delete(old); } catch (IOException) { /* Leave old package for manual cleanup. */ }
+                    var unique = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff") + "-" +
+                        Guid.NewGuid().ToString("N")[..6] + "-" + Path.GetFileName(old);
+                    File.Copy(old, Path.Combine(backups, unique), overwrite: false);
                 }
             }
+            File.Move(staging, destination, overwrite: true);
+            foreach (var old in previous)
+                if (!string.Equals(old, destination, StringComparison.OrdinalIgnoreCase))
+                    File.Delete(old);
         }
         finally { if (File.Exists(staging)) File.Delete(staging); }
         SetStatus($"已安装 FloatingCloud v{version}。重新启动网易云音乐后生效。");
