@@ -79,6 +79,17 @@ jobs:
           Get-FileHash dist/bundled/InfLink-rs.plugin -Algorithm SHA256 | Format-List
           Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/apoint123/inflink-rs/main/LICENSE' -OutFile dist/bundled/InfLink-rs-LICENSE.txt
           if (!(Select-String -Path dist/bundled/InfLink-rs-LICENSE.txt -Pattern 'GNU GENERAL PUBLIC LICENSE' -Quiet)) { throw 'Missing third party GPL license' }
+      - name: Bundle last official BetterNCM v1.3.4 x64 DLL
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download 1.3.4 --repo std-microblock/chromatic --pattern 'BetterNCMII.dll' --dir dist/bundled
+          if ($LASTEXITCODE -ne 0) { throw 'Official BetterNCM DLL download failed' }
+          python installer/validate-betterncm.py dist/bundled/BetterNCMII.dll
+          if ($LASTEXITCODE -ne 0) { throw 'BetterNCM DLL validation failed' }
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/std-microblock/chromatic/1.3.4/LICENSE' -OutFile dist/bundled/BetterNCM-LICENSE.txt
+          if (!(Select-String -Path dist/bundled/BetterNCM-LICENSE.txt -Pattern 'GNU GENERAL PUBLIC LICENSE' -Quiet)) { throw 'Missing BetterNCM GPL license' }
       - name: Build self-contained EXE with embedded plugin
         shell: pwsh
         run: |
@@ -86,7 +97,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installer publish failed' }
           Rename-Item dist/installer/FloatingCloud.Setup.exe FloatingCloud-Setup.exe
           if (!(Test-Path dist/installer/FloatingCloud-Setup.exe)) { throw 'Missing Setup EXE' }
-          $pluginSize = (Get-Item dist/bundled/FloatingCloud.plugin).Length + (Get-Item dist/bundled/InfLink-rs.plugin).Length
+          $pluginSize = (Get-Item dist/bundled/FloatingCloud.plugin).Length + (Get-Item dist/bundled/InfLink-rs.plugin).Length + (Get-Item dist/bundled/BetterNCMII.dll).Length
           $setupSize = (Get-Item dist/installer/FloatingCloud-Setup.exe).Length
           if ($setupSize -le $pluginSize) { throw 'EXE may not contain bundled plugin' }
           Get-FileHash dist/installer/FloatingCloud-Setup.exe -Algorithm SHA256 | Format-List
