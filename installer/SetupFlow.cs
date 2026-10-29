@@ -51,6 +51,25 @@ internal sealed partial class SetupForm
         catch { return 99; }
     }
 
+    private static string DetectBetterNcmProfile()
+    {
+        // User/machine policy takes priority: this is what the BetterNCM loader reads.
+        var configured = Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.User)
+            ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE", EnvironmentVariableTarget.Machine)
+            ?? Environment.GetEnvironmentVariable("BETTERNCM_PROFILE");
+        if (!string.IsNullOrWhiteSpace(configured)) return configured.Trim().Trim('"');
+
+        var candidates = new[]
+        {
+            @"C:\betterncm",
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "betterncm"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BetterNCM"),
+        };
+        return candidates.FirstOrDefault(path => Directory.Exists(Path.Combine(path, "plugins")))
+            ?? candidates.FirstOrDefault(Directory.Exists)
+            ?? @"C:\betterncm";
+    }
+
     private static string? FindAppPath()
     {
         // BetterNCM Installer obtains the registered App Paths value first.
