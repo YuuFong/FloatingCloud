@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.38';
+  const VERSION = '0.4.39-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -762,6 +762,9 @@
       this.presentation.beginTransition(plan,{
         start: ctx => {
           this.stage.classList.add('fc-rolling');
+          // Commit the scaled start frame without animating into it. TBL does
+          // this before enabling the promotion transition.
+          this.track.classList.add('fc-no-anim');
           this.track.style.transition='none';
           this.track.style.transform='translate3d(0,0,0)';
           this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
@@ -778,6 +781,7 @@
           this.rows[this.pairMode?3:2].classList.remove('fc-incoming');
           // Commit the starting geometry before starting the transform.
           void this.track.offsetHeight;
+          this.track.classList.remove('fc-no-anim');
           this.track.style.transition='transform '+duration+'ms cubic-bezier(0.22,0.72,0.24,1)';
           const finish=()=>{if(ctx.isCurrent())ctx.finish();};
           ctx.listenTransitionEnd(this.track,e=>{

@@ -69,6 +69,38 @@ test('finishing a roll reuses the incoming row instead of rebuilding its glyphs'
   assert.equal(view.stage.classList.contains('fc-rolling'),false);
 });
 
+test('promotion commits the small glyph without animation before growing it',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
+  const start=source.indexOf('  class RollingView {');
+  const end=source.indexOf('  plugin.onConfig(() =>',start);
+  let nextFrame=null;
+  const context={Core,window:{matchMedia:()=>({matches:false}),taskbarLyricsPresentation:{
+    PresentationCoordinator:class{
+      cancelTransition(){} setCurrentFrame(){}
+      plan(){return {kind:'singleRoll',durationMs:300};}
+      beginTransition(_plan,handlers){handlers.start({isCurrent:()=>true,
+        listenTransitionEnd:()=>{},scheduleFallback:()=>{},requestFrame:fn=>{nextFrame=fn;}});}
+    }
+  }},el:()=>new FakeNode(),clearTimeout};
+  vm.runInNewContext(source.slice(start,end)+'\nthis.RollingView=RollingView;',context);
+  const view=new context.RollingView(new FakeNode());
+  view.lines=Array.from({length:5},(_,i)=>({time:i*3000,duration:3000,text:'line '+i,words:[]}));
+  view.index=0;view.applySettings(Core.normalizeSettings({}));
+  let committedWithoutAnimation=false;
+  Object.defineProperty(view.track,'offsetHeight',{get(){
+    committedWithoutAnimation=this.classList.contains('fc-no-anim');return 1;
+  }});
+  view.update(1,0,3000);
+  assert.equal(committedWithoutAnimation,true);
+  assert.equal(view.rows[1].style.transform,'scale(var(--fc-secondary-scale))');
+  assert.equal(view.rows[1].style.fontSize,'var(--fc-font-size)');
+  assert.equal(view.track.classList.contains('fc-no-anim'),false);
+  assert.equal(typeof nextFrame,'function');
+  nextFrame();
+  assert.equal(view.rows[1].classList.contains('fc-promoting'),true);
+  assert.equal(view.rows[1].style.transform,'');
+});
+
 test('preview toggle does not disable desktop lyric rendering',()=>{
   const source=fs.readFileSync(path.join(__dirname,'../plugin/main.js'),'utf8');
   const start=source.indexOf('  class RollingView {');

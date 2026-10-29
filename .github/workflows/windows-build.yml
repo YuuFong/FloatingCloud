@@ -34,7 +34,7 @@ jobs:
           node --check plugin/main.js
           node --check plugin/ncm-path.js
           node --check plugin/update-check.js
-          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js tools/ncm-directory-integration.test.js tools/playback-events.test.js tools/glow-render.test.js tools/test-update-check.cjs
+          node --test tools/core.test.js tools/position.test.js tools/ncm-path.test.js tools/ncm-directory-integration.test.js tools/playback-events.test.js tools/glow-render.test.js tools/spectrum-scene.test.js tools/test-update-check.cjs
       - name: Build and package x64 plugin
         shell: pwsh
         run: .\tools\build-windows.ps1
