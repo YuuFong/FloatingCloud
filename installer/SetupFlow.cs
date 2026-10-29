@@ -22,7 +22,7 @@ internal sealed partial class SetupForm
         Style = ProgressBarStyle.Continuous
     };
 
-    internal static int RunSelfTest()
+    internal static int RunSelfTest(string? expectedPluginVersion = null)
     {
         try
         {
@@ -42,6 +42,13 @@ internal sealed partial class SetupForm
                 using var document = JsonDocument.Parse(entry.Open());
                 if (document.RootElement.GetProperty("name").GetString() != expected)
                     return 4;
+                if (name == "FloatingCloud.Setup.BundledPlugin")
+                {
+                    var version = document.RootElement.GetProperty("version").GetString() ?? "";
+                    if (ParsePluginVersion(version) is null) return 10;
+                    if (expectedPluginVersion is not null && version != expectedPluginVersion)
+                        return 9;
+                }
             }
             using (var betterDll = assembly.GetManifestResourceStream(BetterNcmResource))
             {

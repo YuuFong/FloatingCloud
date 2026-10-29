@@ -12,9 +12,9 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (args.Length == 1 && args[0] == "--self-test")
+        if ((args.Length == 1 || args.Length == 2) && args[0] == "--self-test")
         {
-            Environment.ExitCode = SetupForm.RunSelfTest();
+            Environment.ExitCode = SetupForm.RunSelfTest(args.Length > 1 ? args[1] : null);
             return;
         }
         if (args.Length == 3 && args[0] == "--install-betterncm")
@@ -350,7 +350,7 @@ internal sealed partial class SetupForm : Form
             if (root.GetProperty("slug").GetString() != "floatingcloud-lite")
                 throw new InvalidDataException("不是 FloatingCloud 插件包。");
             version = root.GetProperty("version").GetString() ?? "";
-            if (!System.Text.RegularExpressions.Regex.IsMatch(version, @"^\d+\.\d+\.\d+$"))
+            if (ParsePluginVersion(version) is null)
                 throw new InvalidDataException("插件包的版本号无效。");
         }
         var pluginDir = Path.Combine(_profile, "plugins");
@@ -359,15 +359,17 @@ internal sealed partial class SetupForm : Form
         var destination = Path.Combine(pluginDir, filename);
         var previous = Directory.GetFiles(pluginDir, "FloatingCloud-v*.plugin");
         // Avoid silently downgrading an installed version.
-        var incoming = Version.Parse(version);
+        var incoming = ParsePluginVersion(version)!.Value;
         var existingVersions = previous
             .Select(path => Path.GetFileNameWithoutExtension(path))
             .Select(name => name.StartsWith("FloatingCloud-v", StringComparison.OrdinalIgnoreCase)
                 ? name["FloatingCloud-v".Length..] : "")
-            .Select(text => Version.TryParse(text, out var parsed) ? parsed : null)
-            .Where(v => v is not null)
+            .Select(ParsePluginVersion)
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
             .ToList();
-        if (existingVersions.Any(v => v!.CompareTo(incoming) > 0) &&
+        if (existingVersions.Any(v => v.Number.CompareTo(incoming.Number) > 0 ||
+                (v.Number == incoming.Number && !v.Prerelease && incoming.Prerelease)) &&
             MessageBox.Show(this, $"已安装的 FloatingCloud 版本高于 v{version}。是否仍要降级？",
                 "确认降级", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
@@ -397,6 +399,16 @@ internal sealed partial class SetupForm : Form
         SetStatus($"已安装 FloatingCloud v{version}。重新启动网易云音乐后生效。");
         if (showCompletion)
             MessageBox.Show(this, $"FloatingCloud v{version} 已安装到 BetterNCM！\n\n重启网易云音乐后，在插件设置中开启桌面浮窗。", "安装成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private static (Version Number, bool Prerelease)? ParsePluginVersion(string text)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(text,
+            @"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$");
+        if (!match.Success || !Version.TryParse(match.Groups[1].Value + "." +
+            match.Groups[2].Value + "." + match.Groups[3].Value, out var number))
+            return null;
+        return (number, match.Groups[4].Success);
     }
 
     private void ShowThirdPartyLicenses()
