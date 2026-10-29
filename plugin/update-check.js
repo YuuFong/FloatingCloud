@@ -9,6 +9,11 @@
   'use strict';
   const API_URL = 'https://api.github.com/repos/YuuFong/FloatingCloud/releases/latest';
   const RELEASES_URL = 'https://github.com/YuuFong/FloatingCloud/releases';
+  function openReleaseUrl(url, host) {
+    if (typeof host?.ncm?.openUrl !== 'function') return false;
+    host.ncm.openUrl(url);
+    return true;
+  }
   function parseVersion(value) {
     const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/i);
     if (!match) return null;
@@ -69,5 +74,5 @@
     if (!response.ok) throw new Error('GitHub 访问失败（HTTP ' + response.status + '）');
     return evaluateRelease(currentVersion, await response.json());
   }
-  return { API_URL, RELEASES_URL, parseVersion, compareVersions, evaluateRelease, checkLatest };
+  return { API_URL, RELEASES_URL, parseVersion, compareVersions, evaluateRelease, checkLatest, openReleaseUrl };
 });

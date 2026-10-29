@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.40';
+  const VERSION = '0.4.41-beta';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -846,6 +846,12 @@
     releaseLink.href='https://github.com/YuuFong/FloatingCloud/releases';
     releaseLink.target='_blank'; releaseLink.rel='noopener noreferrer';
     releaseLink.hidden=true;
+    releaseLink.addEventListener('click',event=>{
+      if(typeof window.betterncm?.ncm?.openUrl !== 'function')return;
+      event.preventDefault();
+      try { updater.openReleaseUrl(releaseLink.href,window.betterncm); }
+      catch(error) { updateStatus.textContent='无法打开浏览器：'+(error?.message||'请手动前往 GitHub Releases'); }
+    });
     updateActions.append(updateButton,releaseLink);updateArea.append(updateActions);
     panel.append(updateArea);
     const updateKey='update-check-v1', day=24*60*60*1000;

@@ -42,6 +42,15 @@ test('HTTP failures are reported and no unknown update is announced', async () =
   assert.equal(result.updateAvailable,true);
 });
 
+test('download link opens in the system browser through BetterNCM', () => {
+  const calls=[];
+  assert.equal(updater.openReleaseUrl(updater.RELEASES_URL,{
+    ncm:{openUrl:url=>calls.push(url)}
+  }),true);
+  assert.deepEqual(calls,[updater.RELEASES_URL]);
+  assert.equal(updater.openReleaseUrl(updater.RELEASES_URL,{}),false);
+});
+
 test('manifest version and script loading remain in sync', () => {
   const plugin = path.join(__dirname,'..','plugin');
   const manifest=JSON.parse(fs.readFileSync(path.join(plugin,'manifest.json'),'utf8'));
