@@ -113,9 +113,9 @@ jobs:
             dist/FloatingCloud-v*.plugin
           if-no-files-found: error
           retention-days: 30
-      - name: Publish v0.4.41 with both validated assets
+      - name: Publish v0.4.42 with both validated assets
         # Explicit one-time release marker: ordinary main pushes never publish.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v0.4.41]')
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[publish-v0.4.42]')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -123,20 +123,20 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $version = (Get-Content plugin/manifest.json -Raw | ConvertFrom-Json).version
-          if ($version -ne '0.4.41') { throw "Unexpected manifest version: $version" }
+          if ($version -ne '0.4.42') { throw "Unexpected manifest version: $version" }
           $tag = "v$version"
           $plugin = "dist/FloatingCloud-v$version.plugin"
           $setup = "dist/installer/FloatingCloud-Setup.exe"
-          foreach ($file in @($plugin, $setup, 'release-notes/v0.4.41.md')) {
+          foreach ($file in @($plugin, $setup, 'release-notes/v0.4.42.md')) {
             if (!(Test-Path $file)) { throw "Missing release component: $file" }
           }
           gh release view $tag --repo $env:GH_REPO 2>$null
           if ($LASTEXITCODE -eq 0) { throw "Release $tag already exists. Refusing duplicate publication." }
-          gh release create $tag $plugin $setup --repo $env:GH_REPO --target $env:GITHUB_SHA --title "FloatingCloud $tag" --notes-file release-notes/v0.4.41.md --draft
+          gh release create $tag $plugin $setup --repo $env:GH_REPO --target $env:GITHUB_SHA --title "FloatingCloud $tag" --notes-file release-notes/v0.4.42.md --draft
           if ($LASTEXITCODE -ne 0) { throw "Failed to create draft $tag with assets" }
           $assets = @(gh release view $tag --repo $env:GH_REPO --json assets --jq '.assets[].name')
           if ($LASTEXITCODE -ne 0 -or $assets.Count -ne 2 -or
-              $assets -notcontains "FloatingCloud-v0.4.41.plugin" -or
+              $assets -notcontains "FloatingCloud-v0.4.42.plugin" -or
               $assets -notcontains "FloatingCloud-Setup.exe") {
             throw "Draft assets incomplete: $($assets -join ', '). Release remains draft."
           }

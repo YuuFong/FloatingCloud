@@ -95,8 +95,10 @@ test('promotion commits the small glyph without animation before growing it',()=
   assert.equal(view.rows[1].style.transform,'scale(var(--fc-secondary-scale))');
   assert.equal(view.rows[1].style.fontSize,'var(--fc-font-size)');
   assert.equal(view.track.classList.contains('fc-no-anim'),false);
+  assert.equal(view.rows[0].classList.contains('fc-leaving'),false);
   assert.equal(typeof nextFrame,'function');
   nextFrame();
+  assert.equal(view.rows[0].classList.contains('fc-leaving'),true);
   assert.equal(view.rows[1].classList.contains('fc-promoting'),true);
   assert.equal(view.rows[1].style.transform,'');
 });

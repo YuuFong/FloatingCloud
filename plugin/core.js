@@ -133,6 +133,17 @@
     }
     return lines.sort((a, b) => a.time - b.time);
   }
+  // Keep whitespace supplied by timed segments when a provider's plain line
+  // dropped it. Only restore spacing when both texts contain the same glyphs.
+  function restoreLyricSpacing(text, words) {
+    const original=String(text||'');
+    if(!Array.isArray(words)||!words.length)return original;
+    const segmented=words.map(word=>String(word?.text||'')).join('').trim();
+    const compact=value=>value.replace(/\s+/g,'');
+    if(segmented.length>original.length && /\s/.test(segmented) &&
+       compact(segmented)===compact(original))return segmented;
+    return original;
+  }
   function attachTranslations(lines, translatedLrc) {
     const translations = parseLrc(translatedLrc);
     if (!translations.length) return lines;
@@ -365,5 +376,5 @@
   }
   return { DEFAULTS, FONT_OPTIONS, WEIGHT_OPTIONS, normalizeSettings, lyricPalette, parseLrc, parseYrc,
     attachTranslations, parseNcmLyrics, parseLyricsfile, parseLrclibRecord,
-    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, normalizeChorusIntervals, isChorusActive, createClock };
+    isInstrumentalPlaceholder, isLyricCredit, isInstrumentalRecord, isNcmInstrumental, shouldDisplaySpectrum, resolveIndex, lineProgress, wordProgress, wordScanProgress, lyricProgress, restoreLyricSpacing, normalizeChorusIntervals, isChorusActive, createClock };
 });

@@ -13,6 +13,16 @@ test('YRC tokens retain absolute timestamps and whitespace', () => {
   assert.equal(r[0].words[1].start, 2000);
   assert.equal(r[0].text, 'hello world');
 });
+test('timed syllables restore source spaces without changing the lyric glyphs', () => {
+  assert.equal(C.restoreLyricSpacing('下雨也好迷路也好',[
+    {text:'下雨也好  '},{text:'迷路也好'}]),'下雨也好  迷路也好');
+  assert.equal(C.restoreLyricSpacing('下雨也好 迷路也好',[
+    {text:'下雨也好'},{text:'迷路也好'}]),'下雨也好 迷路也好');
+  assert.equal(C.restoreLyricSpacing('下雨也好迷路也好',[
+    {text:'下雨也好'},{text:'迷路也好'}]),'下雨也好迷路也好');
+  assert.equal(C.restoreLyricSpacing('下雨也好，迷路也好',[
+    {text:'下雨也好 '},{text:'迷路也好'}]),'下雨也好，迷路也好');
+});
 test('YRC word progress respects actual timing gaps and pauses', () => {
   const l = C.parseYrc('[1000,3100](0,1000,0)你(1500,1000,0)好');
   assert.equal(C.wordProgress(l[0].words[0], 1000), 0);

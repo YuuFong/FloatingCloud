@@ -5,7 +5,7 @@
   'use strict';
   if (typeof plugin === 'undefined' || !window.FloatingCloudCore) return;
   const Core = window.FloatingCloudCore;
-  const VERSION = '0.4.41';
+  const VERSION = '0.4.42';
   const DIAG_KEY = 'diagnostic-mode-v1';
   const DIAG_MODES = ['full','no-preview','no-spectrum','no-window','no-native-lyrics','events-only','inert',
     'timeline-read-only','lyrics-only','http-only'];
@@ -188,12 +188,13 @@
                 if(response.pureMusic) {this.pureMusic=true;break;}
                 if(Array.isArray(response.lines) && response.lines.length) {
                   const lines=response.lines.filter(l=>l&&Number.isFinite(l.time)&&typeof l.text==='string')
-                    .map(l=>({
-                      time:l.time,duration:Number(l.duration||0),text:l.text,translation:String(l.translation||''),
-                      words:Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
-                        .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[],
-                      kind:l.kind||'lrc'
-                    })).sort((a,b)=>a.time-b.time);
+                    .map(l=>{
+                      const words=Array.isArray(l.words)?l.words.filter(w=>w&&Number.isFinite(w.start))
+                        .map(w=>({text:String(w.text||''),start:w.start,duration:Number(w.duration||0)})):[];
+                      return {time:l.time,duration:Number(l.duration||0),
+                        text:Core.restoreLyricSpacing(l.text,words),translation:String(l.translation||''),
+                        words,kind:l.kind||'lrc'};
+                    }).sort((a,b)=>a.time-b.time);
                   if(lines.length){result={lines,kind:response.kind||'lrc',provider:response.provider||'TBL'};break;}
                 }
                 break;
@@ -496,7 +497,7 @@
   .fc-text-box{position:relative;display:block;max-width:calc(100% - 64px);padding:32px;margin:-32px auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* TBL uses block .line-text layers. Clip/mask is unreliable on non-replaced
      inline spans, so keep FC's base and scan layers as real block boxes. */
-  .fc-text-base{display:block;white-space:nowrap}
+  .fc-text-base{display:block;white-space:pre}
   .fc-line-primary .fc-text-base,.fc-line-secondary.fc-promoting .fc-text-base,.fc-line-primary .fc-text-highlight,.fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 0 transparent,0 0 0 transparent;transition:text-shadow 420ms ease-in-out}
   .fc-stage.fc-chorus-glow .fc-line-primary .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-base,.fc-stage.fc-chorus-glow .fc-line-primary .fc-text-highlight,.fc-stage.fc-chorus-glow .fc-line-secondary.fc-promoting .fc-text-highlight{text-shadow:0 0 var(--fc-glow-blur) rgba(var(--fc-glow-rgb),var(--fc-glow-alpha)),0 0 var(--fc-glow-wide) rgba(var(--fc-glow-rgb),var(--fc-glow-far-alpha))}
 
@@ -508,8 +509,8 @@
      The clipped progress layer alone becomes bright; otherwise the whole row
      flashes primary before draw() changes it to the scan-enabled base color. */
   .fc-stage.fc-scan-enabled .fc-line-secondary.fc-promoting .fc-text-base{color:var(--fc-next)}
-  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:nowrap}
-  .fc-text-feather{display:none;position:absolute;inset:32px;pointer-events:none;white-space:nowrap}
+  .fc-text-highlight{display:block;position:absolute;inset:32px;color:var(--fc-highlight);pointer-events:none;clip-path:inset(0 calc(100% - var(--fc-progress,0%)) 0 0);white-space:pre}
+  .fc-text-feather{display:none;position:absolute;inset:32px;pointer-events:none;white-space:pre}
   /* Keep the played glyphs fully bright; paint only a narrow soft tail past
      the clip edge. The text paint path avoids animated mask-image on WebView2. */
   @supports (-webkit-background-clip:text){
@@ -767,8 +768,8 @@
           this.track.classList.add('fc-no-anim');
           this.track.style.transition='none';
           this.track.style.transform='translate3d(0,0,0)';
-          this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
-          if(this.pairMode)this.rows[1].classList.add('fc-pair-leaving');
+          this.rows[0].classList.remove('fc-leaving','fc-pair-leaving');
+          if(this.pairMode)this.rows[1].classList.remove('fc-pair-leaving');
           else {
             // TBL measures the next row at its smaller real font size, then
             // switches to primary metrics before animating only the scale.
@@ -790,6 +791,10 @@
           ctx.scheduleFallback(finish,duration+90);
           ctx.requestFrame(()=>{
             if(ctx.isCurrent() && ticket===this.generation){
+              // Start the exit fade with the upward roll. Applying the leaving
+              // class in the no-animation setup frame made the old line vanish.
+              this.rows[0].classList.add(this.pairMode?'fc-pair-leaving':'fc-leaving');
+              if(this.pairMode)this.rows[1].classList.add('fc-pair-leaving');
               if(!this.pairMode){this.rows[1].classList.add('fc-promoting');this.rows[1].style.transform='';}
               this.track.style.transform='translate3d(0,-'+(this.pairMode?this.pitch*2:this.pitch)+'px,0)';
             }
