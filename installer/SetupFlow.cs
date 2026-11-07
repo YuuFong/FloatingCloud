@@ -26,9 +26,6 @@ internal sealed partial class SetupForm
     {
         try
         {
-            if (!MatchesVersion(new Version(3, 1, 42), ">=3.1.42 <3.1.43") ||
-                MatchesVersion(new Version(3, 1, 43), ">=3.1.42 <3.1.43"))
-                return 1;
             var assembly = Assembly.GetExecutingAssembly();
             foreach (var (name, expected) in new[] {
                 ("FloatingCloud.Setup.BundledPlugin", "FloatingCloud"),
@@ -150,11 +147,6 @@ internal sealed partial class SetupForm
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) ||
             !Path.GetFileName(path).Equals("cloudmusic.exe", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("找不到网易云音乐。请手动选择 cloudmusic.exe。");
-        var fileVersion = FileVersionInfo.GetVersionInfo(path).FileVersion ?? "";
-        var productVersion = FileVersionInfo.GetVersionInfo(path).ProductVersion ?? "";
-        if (!new[] { fileVersion, productVersion }.Any(v =>
-                System.Text.RegularExpressions.Regex.IsMatch(v, @"(^|\D)3\.1\.42(?:\D|$)")))
-            throw new InvalidOperationException($"网易云版本不符合 FloatingCloud 要求（识别到 {fileVersion} / {productVersion}，需要 3.1.42）。");
         if (Process.GetProcessesByName("cloudmusic").Length != 0 ||
             Process.GetProcessesByName("cloudmusicn").Length != 0)
             throw new InvalidOperationException("请先完全退出网易云音乐，包括系统托盘中的后台进程，然后重试。");
@@ -348,35 +340,6 @@ internal sealed partial class SetupForm
             return File.Exists(destination);
         }
         catch { return false; }
-    }
-
-    // Compatible with the simple semver ranges returned in BetterNCM's versions catalog.
-    internal static bool MatchesVersion(Version version, string range)
-    {
-        var terms = range.Replace(",", " ").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (terms.Length == 0) return false;
-        foreach (var term in terms)
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(term,
-                @"^(>=|<=|>|<|=|\^|~)?v?(\d+)\.(\d+)\.(\d+)$");
-            if (!match.Success) return false;
-            var op = match.Groups[1].Value;
-            var reference = new Version(int.Parse(match.Groups[2].Value),
-                int.Parse(match.Groups[3].Value), int.Parse(match.Groups[4].Value));
-            var comparison = version.CompareTo(reference);
-            var valid = op switch
-            {
-                ">=" => comparison >= 0,
-                "<=" => comparison <= 0,
-                ">" => comparison > 0,
-                "<" => comparison < 0,
-                "^" => comparison >= 0 && version.Major == reference.Major,
-                "~" => comparison >= 0 && version.Major == reference.Major && version.Minor == reference.Minor,
-                _ => comparison == 0
-            };
-            if (!valid) return false;
-        }
-        return true;
     }
 
     private static bool IsPeFile(string path, ushort expectedMachine, bool requireDll = true)

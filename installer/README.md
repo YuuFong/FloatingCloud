@@ -1,6 +1,6 @@
 # FloatingCloud 一键安装器 · BetterNCM + InfLink-rs + FloatingCloud
 
-这个安装器以 **一键完成所有依赖** 为目标：支持 Windows x64 和当前 FloatingCloud 要求的网易云音乐 **3.1.42**。
+这个安装器以 **一键完成所有依赖** 为目标：支持 Windows x64，不再限制网易云音乐的补丁版本。插件能否加载仍取决于 BetterNCM 和 InfLink-rs。
 
 ## 用户只需做什么
 
@@ -9,7 +9,7 @@
 安装器会依次：
 
 1. 优先读取注册表 `App Paths\\cloudmusic.exe`（与 BetterNCM 官方安装器相同的检测入口），并回退到常见安装目录、卸载注册表；找不到时才提供手动选择。
-2. 检测网易云版本、是否正在运行、是否已装 BetterNCM。
+2. 检测网易云路径、是否正在运行、是否已装 BetterNCM。
 3. **缺少 BetterNCM**：向用户说明将安装第三方程序并获得同意，从 EXE 内已嵌入的 **BetterNCM 1.3.4 官方 x64 DLL** 提取经过构建校验的原始文件，必要时申请管理员权限，放在网易云安装目录并命名为 `msimg32.dll`；按官方逻辑补齐缺失的 Microsoft VC++ x86/x64 运行库。这样不会再因 GitCode 适配目录返回 HTTP 406 而中断。
 4. **自动部署 InfLink-rs**：安装器在构建时从作者的 [GitHub Releases](https://github.com/apoint123/inflink-rs/releases) 获取并验证**未经修改**的 `InfLink-rs.plugin`，作为嵌入式资源分发；若已安装同版或更新版则跳过。
 5. **自动部署 FloatingCloud**：从 EXE 内置的 `.plugin` 安装，在更换版本前备份用户已有的插件包；保留设置。
@@ -46,7 +46,7 @@ GitHub Actions 的 [Build FloatingCloud Offline Setup](../.github/workflows/inst
 
 ### 当前仍需实机验证
 
-- 网易云 3.1.42 注册表路径识别（常见路径与自定义目录）。
+- 网易云注册表路径识别（常见路径与自定义目录）。
 - 从**尚未安装 BetterNCM**的电脑，安装 BetterNCM DLL、VC++ 运行库以及两款插件。
 - 非管理员/系统保护目录的 UAC 提权体验。
 - 已安装 BetterNCM 或已有 InfLink-rs 的重复安装与版本更新。
