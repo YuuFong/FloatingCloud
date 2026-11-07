@@ -76,12 +76,12 @@
 | 项目 | 当前支持范围 |
 | --- | --- |
 | 系统 | Windows x64 |
-| 网易云音乐 | **3.1.42**（例如 3.1.42.205594） |
+| 网易云音乐 | 3.x；FC 不再设置补丁版本门槛，实际加载取决于 BetterNCM 和 InfLink-rs |
 | 插件框架 | BetterNCM（通过一键安装器自动部署） |
 | 插件依赖 | InfLink-rs（通过一键安装器自动部署） |
-| 最新正式版 | [v0.4.38](https://github.com/YuuFong/FloatingCloud/releases/tag/v0.4.38) |
+| 最新正式版 | [v0.4.43](https://github.com/YuuFong/FloatingCloud/releases/tag/v0.4.43) |
 
-**注意：** 此版本尚未适配网易云音乐 3.1.43 及其他未列出的版本。安装器并不包含网易云音乐客户端本身。由于安装器尚未进行代码签名，Windows SmartScreen 可能提示安全确认；建议仅从本仓库官方 Release 下载。
+安装器并不包含网易云音乐客户端本身。由于安装器尚未进行代码签名，Windows SmartScreen 可能提示安全确认；建议仅从本仓库官方 Release 下载。
 
 ## 常见问题
 

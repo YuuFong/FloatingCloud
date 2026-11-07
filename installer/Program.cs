@@ -219,10 +219,6 @@ internal sealed partial class SetupForm : Form
     {
         if (_cloudMusic is null || !File.Exists(_cloudMusic))
             throw new InvalidOperationException("未检测到网易云音乐。请点击「选择网易云路径」。");
-        var version = GetCloudMusicVersion(_cloudMusic);
-        // FloatingCloud's current manifest only supports >=3.1.42 <3.1.43.
-        if (!System.Text.RegularExpressions.Regex.IsMatch(version, @"(^|\D)3\.1\.42(?:\D|$)"))
-            throw new InvalidOperationException($"当前网易云版本为 {version}；此插件只支持 3.1.42，请不要强制安装。");
         if (!File.Exists(Path.Combine(Path.GetDirectoryName(_cloudMusic)!, "msimg32.dll")))
             throw new InvalidOperationException("未检测到 BetterNCM。请先点击「安装 BetterNCM」使用官方安装器。");
         if (!Directory.Exists(_profile))
